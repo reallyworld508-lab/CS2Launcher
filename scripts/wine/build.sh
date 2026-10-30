@@ -315,7 +315,7 @@ step_make() {
     die "make failed (see logs/make.log)"
   fi
   command -v ccache >/dev/null && ccache -s || true
-  nm -gU "$BLD/dlls/winemac.drv/winemac.so" 2>/dev/null | grep -q '_macdrv_functions' \
+  nm -gU "$BLD/dlls/winemac.drv/winemac.so" 2>/dev/null | grep -c '_macdrv_functions' >/dev/null \
     || warn "winemac.so does not export macdrv_functions yet (checked again in verify)"
 }
 
@@ -453,7 +453,7 @@ step_verify() {
   fi
   # 2. architecture
   for f in bin/wine bin/wineserver lib/wine/x86_64-unix/ntdll.so; do
-    file "$PFX/$f" | grep -q x86_64 || die "$f is not x86_64"
+    file "$PFX/$f" | grep -c x86_64 >/dev/null || die "$f is not x86_64"
   done
   # 3. WoW64 layout
   for f in lib/wine/x86_64-unix/ntdll.so lib/wine/x86_64-windows/ntdll.dll lib/wine/i386-windows/ntdll.dll \
@@ -463,11 +463,11 @@ step_verify() {
     [ -e "$PFX/$f" ] || die "missing $f"
   done
   # 4. CrossOver's D3DMetal code paths are compiled in
-  nm -gU "$PFX/lib/wine/x86_64-unix/winemac.so" | grep -q '_macdrv_functions' || die "winemac.so does not export macdrv_functions (D3DMetal hook table)"
-  nm -gU "$PFX/lib/wine/x86_64-unix/ntdll.so" | grep -q '_prepend_dll_path' || die "ntdll.so does not export prepend_dll_path"
-  strings -a "$PFX/lib/wine/x86_64-unix/ntdll.so" | grep -q 'CX_APPLEGPTK_LIBD3DSHARED_PATH' || die "ntdll.so does not know CX_APPLEGPTK_LIBD3DSHARED_PATH"
-  strings -a "$PFX/lib/wine/x86_64-unix/ntdll.so" | grep -q 'cxcompatdb.so' || die "ntdll.so does not load cxcompatdb.so"
-  strings -a "$PFX/lib/wine/x86_64-unix/win32u.so" | grep -q 'CX_ACTIVE_GRAPHICS_BACKEND' || die "win32u.so does not know CX_ACTIVE_GRAPHICS_BACKEND"
+  nm -gU "$PFX/lib/wine/x86_64-unix/winemac.so" | grep -c '_macdrv_functions' >/dev/null || die "winemac.so does not export macdrv_functions (D3DMetal hook table)"
+  nm -gU "$PFX/lib/wine/x86_64-unix/ntdll.so" | grep -c '_prepend_dll_path' >/dev/null || die "ntdll.so does not export prepend_dll_path"
+  strings -a "$PFX/lib/wine/x86_64-unix/ntdll.so" | grep -c 'CX_APPLEGPTK_LIBD3DSHARED_PATH' >/dev/null || die "ntdll.so does not know CX_APPLEGPTK_LIBD3DSHARED_PATH"
+  strings -a "$PFX/lib/wine/x86_64-unix/ntdll.so" | grep -c 'cxcompatdb.so' >/dev/null || die "ntdll.so does not load cxcompatdb.so"
+  strings -a "$PFX/lib/wine/x86_64-unix/win32u.so" | grep -c 'CX_ACTIVE_GRAPHICS_BACKEND' >/dev/null || die "win32u.so does not know CX_ACTIVE_GRAPHICS_BACKEND"
   # 5. dlopen targets exist
   for f in lib/libfreetype.6.dylib lib/libgnutls.30.dylib lib/libMoltenVK.dylib; do
     [ -e "$PFX/$f" ] || die "bundled $f missing"
