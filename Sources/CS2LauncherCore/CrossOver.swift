@@ -146,20 +146,21 @@ public struct Bottle: Sendable {
         return lines.joined(separator: "\n")
     }
 
-    /// Returns `conf` with D3DMetal and MSync enabled in `[EnvironmentVariables]`. Idempotent.
+    /// Returns `conf` with D3DMetal enabled in `[EnvironmentVariables]`. Idempotent. Any forced `WINEMSYNC` line
+    /// is removed: CrossOver's own default is safer (a forced value caused hangs inside ntdll).
     public static func enablingD3DMetal(in conf: String) -> String {
-        let withSync = settingEnvironment(msyncKey, "1", in: conf)
-        return settingEnvironment(backendKey, "d3dmetal", in: withSync)
+        let withoutSync = settingEnvironment(msyncKey, nil, in: conf)
+        return settingEnvironment(backendKey, "d3dmetal", in: withoutSync)
     }
 
-    /// D3DMetal, MSync and the Metal HUD switch, so they also apply when the game is started from inside Steam.
+    /// D3DMetal and the Metal HUD switch, so they also apply when the game is started from inside Steam.
     public static func applyingEnvironment(metalHUD: Bool, in conf: String) -> String {
         settingEnvironment(hudKey, metalHUD ? "1" : nil, in: enablingD3DMetal(in: conf))
     }
 
     public var hasD3DMetal: Bool {
         guard let conf = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
-        return Self.enablingD3DMetal(in: conf) == conf
+        return Self.settingEnvironment(Self.backendKey, "d3dmetal", in: conf) == conf
     }
 
     public func ensureD3DMetal() throws {
@@ -169,7 +170,7 @@ public struct Bottle: Sendable {
         if updated != conf { try updated.write(to: configURL, atomically: true, encoding: .utf8) }
     }
 
-    /// Writes D3DMetal/MSync/Metal HUD into cxbottle.conf. Returns true when the file changed.
+    /// Writes D3DMetal/Metal HUD into cxbottle.conf. Returns true when the file changed.
     @discardableResult
     public func ensureEnvironment(metalHUD: Bool) throws -> Bool {
         guard exists else { throw CrossOverError.bottleMissing(name) }

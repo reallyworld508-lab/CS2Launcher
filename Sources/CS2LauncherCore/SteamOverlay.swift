@@ -119,7 +119,7 @@ public struct SteamOverlay: Sendable {
 
 /// Everything "Режим производительности" and the Metal HUD switch change on disk before a launch.
 public enum PerformanceTweaks {
-    /// Writes the bottle's environment (D3DMetal, MSync, Metal HUD) and the Steam overlay switch.
+    /// Writes the bottle's environment (D3DMetal, Metal HUD) and the Steam overlay switch.
     /// Skipped entirely while Steam is running, because Steam rewrites its config on exit.
     public static func apply(bottle: Bottle, settings: Settings, steamRunning: Bool,
                              log: (String) -> Void = { _ in }) {

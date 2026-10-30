@@ -72,24 +72,30 @@ final class BottleTests: XCTestCase {
     func testEnableFresh() {
         let conf = "[Bottle]\n\"Version\" = \"1\"\n\n[EnvironmentVariables]\n\"FOO\" = \"bar\"\n"
         let out = Bottle.enablingD3DMetal(in: conf)
-        XCTAssertEqual(out, "[Bottle]\n\"Version\" = \"1\"\n\n[EnvironmentVariables]\n\"CX_GRAPHICS_BACKEND\" = \"d3dmetal\"\n\"WINEMSYNC\" = \"1\"\n\"FOO\" = \"bar\"\n")
+        XCTAssertEqual(out, "[Bottle]\n\"Version\" = \"1\"\n\n[EnvironmentVariables]\n\"CX_GRAPHICS_BACKEND\" = \"d3dmetal\"\n\"FOO\" = \"bar\"\n")
     }
     func testEnableIdempotent() {
         let conf = "[EnvironmentVariables]\n\"FOO\" = \"bar\"\n"
         let once = Bottle.enablingD3DMetal(in: conf)
         XCTAssertEqual(Bottle.enablingD3DMetal(in: once), once)
         XCTAssertEqual(once.components(separatedBy: "CX_GRAPHICS_BACKEND").count, 2)
-        XCTAssertEqual(once.components(separatedBy: "WINEMSYNC").count, 2)
+        XCTAssertFalse(once.contains("WINEMSYNC"))
     }
     func testReplacesOtherBackend() {
         let conf = "[EnvironmentVariables]\n\"CX_GRAPHICS_BACKEND\" = \"dxvk\"\n\"WINEMSYNC\" = \"0\"\n[Other]\n"
         let out = Bottle.enablingD3DMetal(in: conf)
-        XCTAssertEqual(out, "[EnvironmentVariables]\n\"CX_GRAPHICS_BACKEND\" = \"d3dmetal\"\n\"WINEMSYNC\" = \"1\"\n[Other]\n")
+        XCTAssertEqual(out, "[EnvironmentVariables]\n\"CX_GRAPHICS_BACKEND\" = \"d3dmetal\"\n[Other]\n")
         XCTAssertFalse(out.contains("dxvk"))
+    }
+    func testRemovesForcedMSync() {
+        let conf = "[EnvironmentVariables]\n\"WINEMSYNC\" = \"1\"\n\"FOO\" = \"bar\"\n"
+        XCTAssertEqual(Bottle.enablingD3DMetal(in: conf),
+                       "[EnvironmentVariables]\n\"CX_GRAPHICS_BACKEND\" = \"d3dmetal\"\n\"FOO\" = \"bar\"\n")
+        XCTAssertFalse(Bottle.applyingEnvironment(metalHUD: true, in: conf).contains("WINEMSYNC"))
     }
     func testAddsSectionWhenMissing() {
         let out = Bottle.enablingD3DMetal(in: "[Bottle]\n\"A\" = \"b\"\n")
-        XCTAssertTrue(out.contains("[EnvironmentVariables]\n\"CX_GRAPHICS_BACKEND\" = \"d3dmetal\"\n\"WINEMSYNC\" = \"1\""))
+        XCTAssertTrue(out.contains("[EnvironmentVariables]\n\"CX_GRAPHICS_BACKEND\" = \"d3dmetal\""))
         XCTAssertEqual(Bottle.enablingD3DMetal(in: out), out)
     }
 

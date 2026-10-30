@@ -3,12 +3,13 @@ import Observation
 import CS2LauncherCore
 
 enum SetupStep: String, CaseIterable, Identifiable {
-    case systemCheck, crossOver, bottle, steam, cs2
+    case systemCheck, rosetta, crossOver, bottle, steam, cs2
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .systemCheck: "Проверка системы"
+        case .rosetta: "Rosetta 2"
         case .crossOver: "CrossOver"
         case .bottle: "Бутылка"
         case .steam: "Steam"
@@ -17,9 +18,10 @@ enum SetupStep: String, CaseIterable, Identifiable {
     }
     var explanation: String {
         switch self {
-        case .systemCheck: "Apple Silicon, Rosetta, версия macOS и свободное место (от 45 ГБ)."
-        case .crossOver: "Лаунчер работает поверх CrossOver (D3DMetal + DirectX 11). 14 дней бесплатно, затем нужна лицензия CodeWeavers."
-        case .bottle: "Создание бутылки CrossOver «CS2» и включение D3DMetal."
+        case .systemCheck: "Apple Silicon, версия macOS и свободное место (от 45 ГБ)."
+        case .rosetta: "Слой совместимости Apple для Windows-программ. Устанавливается автоматически."
+        case .crossOver: "Лаунчер сам скачает и установит CrossOver (D3DMetal + DirectX 11) с codeweavers.com. CrossOver — платная программа: 14 дней бесплатно, затем нужна лицензия на codeweavers.com"
+        case .bottle: "Создание бутылки CrossOver «CS2» и включение D3DMetal. Если CrossOver покажет окно пробной версии — нажмите «Try Now»."
         case .steam: "Загрузка и установка Windows-клиента Steam в бутылку. Первый запуск может занять несколько минут."
         case .cs2: "Откройте Steam, войдите и установите Counter-Strike 2"
         }
@@ -27,6 +29,7 @@ enum SetupStep: String, CaseIterable, Identifiable {
     var stage: SetupStage {
         switch self {
         case .systemCheck: .systemCheck
+        case .rosetta: .rosetta
         case .crossOver: .crossOver
         case .bottle: .bottle
         case .steam: .steam
@@ -36,6 +39,7 @@ enum SetupStep: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .systemCheck: "checkmark.shield"
+        case .rosetta: "cpu"
         case .crossOver: "wineglass"
         case .bottle: "shippingbox"
         case .steam: "gamecontroller"
@@ -58,6 +62,7 @@ extension SetupStage {
     var title: String {
         switch self {
         case .systemCheck: "Проверка системы"
+        case .rosetta: "Rosetta 2"
         case .crossOver: "CrossOver"
         case .bottle: "Подготовка бутылки"
         case .steam: "Установка Steam"
@@ -68,6 +73,7 @@ extension SetupStage {
     var step: SetupStep? {
         switch self {
         case .systemCheck: .systemCheck
+        case .rosetta: .rosetta
         case .crossOver: .crossOver
         case .bottle: .bottle
         case .steam: .steam
@@ -92,6 +98,9 @@ final class AppState {
             if settings.performanceMode != oldValue.performanceMode || settings.metalHUD != oldValue.metalHUD {
                 backend.applyPerformanceTweaks(settings: settings, steamRunning: isSteamRunning, log: makeLogger())
             }
+            if settings.throttleBackgroundApps != oldValue.throttleBackgroundApps, isGameRunning {
+                Task { @MainActor in await applyThrottle() }
+            }
         }
     }
     private(set) var logLines: [String] = []
@@ -107,6 +116,9 @@ final class AppState {
     private(set) var isGameRunning = false
     private(set) var isLaunching = false
     private(set) var cs2State: CS2InstallState = .notInstalled
+    /// Latest memory snapshot (taken while the game is not running).
+    private(set) var memoryReport: MemoryReport?
+    private var rosettaVerified = false
     private(set) var crossOverVersion: String?
     private(set) var legacyMigrationAvailable = false
     static let crossOverDownloadURL = URL(string: "https://www.codeweavers.com/crossover")!
@@ -132,7 +144,31 @@ final class AppState {
         SetupStep.allCases.forEach { s[$0] = .pending }
         self.stepStatus = s
         try? backend.paths.ensureDirectories()
+        let b = backend
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
+                                               object: nil, queue: nil) { _ in b.restoreBackgroundBlocking() }
         refresh()
+    }
+
+    /// Hint about the shader cache for the first few launches.
+    var showShaderHint: Bool { ShaderCacheHint.shouldShow(launchCount: settings.gameLaunchCount) }
+
+    var showMemoryWarning: Bool { memoryReport?.isLow == true }
+
+    func refreshMemory() async {
+        guard !isGameRunning else { return }
+        memoryReport = await backend.memoryReport()
+    }
+
+    /// Demotes (or, with the setting off, restores) the user's chat/browser apps while the game runs.
+    func applyThrottle() async {
+        if isGameRunning && settings.throttleBackgroundApps {
+            let n = await backend.throttleBackground()
+            if n > 0 { log("Фоновый приоритет: \(n) процессов приложений переведено на E-ядра") }
+        } else {
+            let n = await backend.restoreBackground()
+            if n > 0 { log("Приоритет \(n) процессов возвращён") }
+        }
     }
 
     // MARK: Derived
@@ -189,6 +225,7 @@ final class AppState {
         if !isSetupComplete && systemCheckResult == nil { await runSystemCheck() }
         refresh()
         await refreshSteamRunning()
+        await refreshMemory()
         startMonitoring()
     }
 
@@ -220,8 +257,9 @@ final class AppState {
         if running != isGameRunning {
             isGameRunning = running
             log(running ? "CS2 запущена: фоновые проверки лаунчера замедлены" : "CS2 закрыта")
-            if !running { refresh(); await refreshSteamRunning() }
+            if !running { refresh(); await refreshSteamRunning(); await refreshMemory() }
         }
+        await applyThrottle()
     }
 
     func refreshSteamRunning() async {
@@ -233,9 +271,10 @@ final class AppState {
 
     /// Re-derives done-ness from the backend. Running/failed steps are left alone unless now satisfied.
     func refresh() {
-        if let r = systemCheckResult { set(.systemCheck, r.allPassed ? .done : .failed(Self.describe(r))) }
+        if let r = systemCheckResult { set(.systemCheck, r.blockingPassed ? .done : .failed(Self.describe(r))) }
         let version = backend.crossOverVersion()
         if version != crossOverVersion { crossOverVersion = version }
+        derive(.rosetta, rosettaVerified || systemCheckResult?.rosettaInstalled == true || status(.steam).isDone)
         derive(.crossOver, backend.isCrossOverInstalled())
         derive(.bottle, backend.isBottleReady())
         derive(.steam, backend.isSteamInstalled())
@@ -261,7 +300,6 @@ final class AppState {
     static func describe(_ r: SystemCheckResult) -> String {
         var p: [String] = []
         if !r.isAppleSilicon { p.append("нужен Mac на Apple Silicon") }
-        if !r.rosettaInstalled { p.append("не установлена Rosetta (softwareupdate --install-rosetta)") }
         if !r.macOSSupported { p.append("macOS \(r.macOSVersion) не поддерживается") }
         if !r.enoughDisk {
             let gb = Double(r.freeDiskBytes) / 1_073_741_824
@@ -315,8 +353,10 @@ final class AppState {
         case .systemCheck:
             await runSystemCheck()
             return status(.systemCheck).isDone
+        case .rosetta:
+            return await performRosettaInstall()
         case .crossOver:
-            return checkCrossOver(reportingFailure: true)
+            return await performCrossOverInstall()
         case .bottle:
             return await performBottleCreate()
         case .steam:
@@ -343,7 +383,7 @@ final class AppState {
         let r = await backend.systemCheck()
         systemCheckResult = r
         log("Проверка системы: macOS \(r.macOSVersion), Rosetta \(r.rosettaInstalled ? "да" : "нет"), свободно \(r.freeDiskBytes / 1_073_741_824) ГБ")
-        set(.systemCheck, r.allPassed ? .done : .failed(Self.describe(r)))
+        set(.systemCheck, r.blockingPassed ? .done : .failed(Self.describe(r)))
     }
 
     /// Re-checks for CrossOver.app. Returns true when found.
@@ -367,9 +407,38 @@ final class AppState {
 
     func downloadCrossOver() { NSWorkspace.shared.open(Self.crossOverDownloadURL) }
 
+    private func performRosettaInstall() async -> Bool {
+        if systemCheckResult?.rosettaInstalled == true || rosettaVerified {
+            set(.rosetta, .done)
+            return true
+        }
+        let ok = await performStep(.rosetta, "Установка Rosetta 2") { [backend] _, log in
+            try await backend.installRosetta(log: log)
+        }
+        if ok { rosettaVerified = true }
+        return ok
+    }
+
+    func installRosetta() { Task { _ = await performRosettaInstall() } }
+
+    /// Installs CrossOver from codeweavers.com unless it is already there.
+    private func performCrossOverInstall() async -> Bool {
+        if backend.isCrossOverInstalled() { return checkCrossOver(reportingFailure: true) }
+        return await performStep(.crossOver, "Установка CrossOver") { [backend] progress, log in
+            try await backend.installCrossOver(progress: progress, log: log)
+        }
+    }
+
+    func installCrossOver() { Task { _ = await performCrossOverInstall() } }
+
+    func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     private func performBottleCreate() async -> Bool {
         guard backend.isCrossOverInstalled() else {
-            return checkCrossOver(reportingFailure: true)
+            return await performCrossOverInstall()
         }
         return await performStep(.bottle, "Создание бутылки") { [backend] _, log in
             try await backend.createBottle(log: log)
@@ -435,7 +504,10 @@ final class AppState {
     // MARK: Running
 
     func openSteam() { launch(game: false) }
-    func play() { launch(game: true) }
+    func play() {
+        launch(game: true)
+        Task { await refreshMemory() }
+    }
 
     private func launch(game: Bool) {
         guard !isLaunching, !isInstallingAll else { return }
@@ -462,7 +534,10 @@ final class AppState {
         let p = try backend.launch(settings: s, launchGame: game, log: logger)
         if process?.isRunning != true { process = p }
         isSteamRunning = true
-        if game { gameLaunched = true }
+        if game {
+            gameLaunched = true
+            settings.gameLaunchCount += 1
+        }
         statusText = game ? "Игра запускается, окно появится через 20–60 с"
                           : "Steam запускается, окно появится через 20–60 с"
         Task { @MainActor [weak self] in
@@ -485,6 +560,7 @@ final class AppState {
             isSteamRunning = false
             gameLaunched = false
             isGameRunning = false
+            _ = await backend.restoreBackground()
             statusText = ""
             log("Всё остановлено")
         }

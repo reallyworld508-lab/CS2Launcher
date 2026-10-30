@@ -40,12 +40,31 @@ struct MainView: View {
             }
 
             summary
+            if state.showMemoryWarning, let r = state.memoryReport { memoryWarning(r) }
+            if state.showShaderHint {
+                Text("Первые 1–3 матча возможны фризы: D3DMetal собирает кэш шейдеров")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Button("Показать журнал") { showLog = true }
                 .buttonStyle(.link)
             Spacer()
         }
         .frame(maxWidth: .infinity)
         .padding()
+    }
+
+    private func memoryWarning(_ r: MemoryReport) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("Мало свободной памяти — закройте тяжёлые приложения, иначе будут фризы",
+                  systemImage: "exclamationmark.triangle.fill")
+                .font(.callout).foregroundStyle(.orange)
+            ForEach(r.topApps, id: \.name) { app in
+                Text("\(app.name) — \(ByteCountFormatter.string(fromByteCount: app.bytes, countStyle: .memory))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(10)
+        .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var idleText: String {

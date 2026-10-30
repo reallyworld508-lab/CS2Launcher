@@ -47,7 +47,7 @@ public struct GameLauncher: Sendable {
         return args
     }
 
-    /// D3DMetal and MSync come from the bottle's cxbottle.conf; only the HUD is a per-launch switch.
+    /// D3DMetal comes from the bottle's cxbottle.conf; only the HUD is a per-launch switch.
     public static func environment(for settings: Settings) -> [String: String] {
         settings.metalHUD ? ["MTL_HUD_ENABLED": "1"] : [:]
     }

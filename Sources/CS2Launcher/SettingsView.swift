@@ -19,6 +19,8 @@ struct SettingsView: View {
             Section("Производительность") {
                 Toggle("Режим производительности", isOn: $state.settings.performanceMode)
                 note("Отключает оверлей Steam для CS2 и фоновые проверки лаунчера во время игры")
+                Toggle("Фоновые приложения — на энергоэффективные ядра", isOn: $state.settings.throttleBackgroundApps)
+                note("Пока идёт игра, Chrome, Discord, Telegram и др. получают фоновый приоритет macOS (taskpolicy -b) и уходят на E-ядра; после игры приоритет возвращается")
             }
             Section("Графика") {
                 Toggle("Metal HUD", isOn: $state.settings.metalHUD)
@@ -26,7 +28,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 430)
+        .frame(width: 520, height: 520)
     }
 
     private func note(_ s: String) -> some View {

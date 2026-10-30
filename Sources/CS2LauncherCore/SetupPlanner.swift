@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SetupStage: String, CaseIterable, Sendable {
-    case systemCheck, crossOver, bottle, steam, openSteam, cs2
+    case systemCheck, rosetta, crossOver, bottle, steam, openSteam, cs2
 }
 
 public struct SetupResult: Equatable, Sendable {
@@ -14,7 +14,7 @@ public struct SetupResult: Equatable, Sendable {
 /// Pure ordering/skip logic for "Install everything".
 public enum SetupPlanner {
     /// Stages the one-click setup performs, in order. CS2 itself is downloaded by Steam, not by us.
-    public static let automatic: [SetupStage] = [.systemCheck, .crossOver, .bottle, .steam, .openSteam]
+    public static let automatic: [SetupStage] = [.systemCheck, .rosetta, .crossOver, .bottle, .steam, .openSteam]
 
     /// Automatic stages still to do (already completed ones are skipped; order preserved).
     /// A retry after a failure is simply a fresh plan: finished stages drop out, the failed one comes first.

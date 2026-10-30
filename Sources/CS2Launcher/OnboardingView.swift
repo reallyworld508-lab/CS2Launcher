@@ -49,7 +49,7 @@ extension OnboardingView {
                     .controlSize(.large)
                     .disabled(state.isInstallingAll || state.isBusy)
                     if !state.isInstallingAll && state.setupFailure == nil {
-                        Text("Проверка, CrossOver, бутылка, Steam — автоматически (загрузка Steam ~2 МБ). Первый запуск Steam занимает около 3 минут.")
+                        Text("Rosetta 2, CrossOver (~370 МБ с codeweavers.com), бутылка, Steam — автоматически. Первый запуск Steam занимает около 3 минут.")
                             .font(.callout).foregroundStyle(.secondary)
                     }
                 }
@@ -126,10 +126,24 @@ private struct StepRow: View {
             case .systemCheck:
                 Button("Проверить") { Task { await state.runSystemCheck() } }
                     .disabled(busy)
+            case .rosetta:
+                if !s.isDone {
+                    if failed(s) {
+                        Button("Скопировать команду", systemImage: "doc.on.doc") {
+                            state.copyToPasteboard(RosettaInstaller.manualCommand)
+                        }
+                    }
+                    Button(failed(s) ? "Повторить" : "Установить Rosetta") { state.installRosetta() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(busy || !unlocked)
+                }
             case .crossOver:
                 if !s.isDone {
-                    Button("Скачать CrossOver") { state.downloadCrossOver() }
+                    Button(failed(s) ? "Повторить" : "Установить CrossOver") { state.installCrossOver() }
                         .buttonStyle(.borderedProminent)
+                        .disabled(busy || !unlocked)
+                    Button("Сайт CodeWeavers") { state.downloadCrossOver() }
+                        .buttonStyle(.link)
                     Button("Проверить снова") { state.recheckCrossOver() }
                 }
             case .bottle:

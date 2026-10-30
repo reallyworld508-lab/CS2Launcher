@@ -6,11 +6,14 @@ public struct Settings: Codable, Equatable, Sendable {
     public var metalHUD: Bool = false
     public var fpsCap: Int? = nil
     public var performanceMode: Bool = true
+    public var throttleBackgroundApps: Bool = true
+    /// How many times the game was started from the launcher (drives the shader-cache hint).
+    public var gameLaunchCount: Int = 0
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case gameArgs, steamArgs, metalHUD, fpsCap, performanceMode
+        case gameArgs, steamArgs, metalHUD, fpsCap, performanceMode, throttleBackgroundApps, gameLaunchCount
     }
 
     public init(from decoder: Decoder) throws {
@@ -22,6 +25,8 @@ public struct Settings: Codable, Equatable, Sendable {
         metalHUD = (try? c.decodeIfPresent(Bool.self, forKey: .metalHUD)) ?? d.metalHUD
         fpsCap = (try? c.decodeIfPresent(Int.self, forKey: .fpsCap)) ?? d.fpsCap
         performanceMode = (try? c.decodeIfPresent(Bool.self, forKey: .performanceMode)) ?? d.performanceMode
+        throttleBackgroundApps = (try? c.decodeIfPresent(Bool.self, forKey: .throttleBackgroundApps)) ?? d.throttleBackgroundApps
+        gameLaunchCount = max(0, (try? c.decodeIfPresent(Int.self, forKey: .gameLaunchCount)) ?? d.gameLaunchCount)
     }
 
     public static func load(from url: URL) -> Settings {

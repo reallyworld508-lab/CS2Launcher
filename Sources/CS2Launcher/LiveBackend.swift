@@ -7,6 +7,7 @@ struct LiveBackend: LauncherBackend {
     private let runner: ProcessRunning
     private let downloader: Downloading
     private let locator: CrossOverLocator
+    private let throttler: BackgroundThrottler
 
     init(paths: Paths = .default,
          runner: ProcessRunning = SystemProcessRunner(),
@@ -16,6 +17,7 @@ struct LiveBackend: LauncherBackend {
         self.runner = runner
         self.downloader = downloader
         self.locator = locator
+        self.throttler = BackgroundThrottler(runner: runner)
     }
 
     private var bottle: Bottle { Bottle(locator: locator, runner: runner) }
@@ -70,4 +72,19 @@ struct LiveBackend: LauncherBackend {
     }
 
     func stopAll() async { await game.stop() }
+
+    func throttleBackground() async -> Int { await throttler.demoteNew() }
+    func restoreBackground() async -> Int { await throttler.restoreAll() }
+    func restoreBackgroundBlocking() { throttler.restoreAllBlocking() }
+    func memoryReport() async -> MemoryReport { await MemoryCheck.collect(runner: runner) }
+
+    func installRosetta(log: @escaping @Sendable (String) -> Void) async throws {
+        try await RosettaInstaller(runner: runner).install(log: log)
+    }
+
+    func installCrossOver(progress: @escaping @Sendable (Double) -> Void,
+                          log: @escaping @Sendable (String) -> Void) async throws {
+        try await CrossOverInstaller(runner: runner, downloader: downloader, locator: locator,
+                                     downloads: paths.downloads).install(progress: progress, log: log)
+    }
 }

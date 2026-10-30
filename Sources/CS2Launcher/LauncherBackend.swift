@@ -18,6 +18,12 @@ protocol LauncherBackend: Sendable {
     func applyPerformanceTweaks(settings: Settings, steamRunning: Bool, log: @escaping @Sendable (String) -> Void)
     func launch(settings: Settings, launchGame: Bool, log: @escaping @Sendable (String) -> Void) throws -> RunningProcess
     func stopAll() async
+    func throttleBackground() async -> Int
+    func restoreBackground() async -> Int
+    func restoreBackgroundBlocking()
+    func memoryReport() async -> MemoryReport
+    func installRosetta(log: @escaping @Sendable (String) -> Void) async throws
+    func installCrossOver(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws
 }
 
 /// Fake process for previews.
@@ -90,6 +96,16 @@ final class PreviewBackend: LauncherBackend, @unchecked Sendable {
     func isGameRunning() async -> Bool { false }
     func applyPerformanceTweaks(settings: Settings, steamRunning: Bool, log: @escaping @Sendable (String) -> Void) {}
     func stopAll() async { steamProc?.terminate(); await nap(200) }
+    func throttleBackground() async -> Int { 0 }
+    func restoreBackground() async -> Int { 0 }
+    func restoreBackgroundBlocking() {}
+    func memoryReport() async -> MemoryReport { MemoryReport(freePercent: 60, swapUsedBytes: 0, topApps: []) }
+    func installRosetta(log: @escaping @Sendable (String) -> Void) async throws { log("[preview] Rosetta"); await nap(500) }
+    func installCrossOver(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws {
+        log("[preview] CrossOver")
+        for i in 1...10 { await nap(100); progress(Double(i) / 10) }
+        set { crossOver = true }
+    }
 }
 
 typealias LauncherSettings = CS2LauncherCore.Settings

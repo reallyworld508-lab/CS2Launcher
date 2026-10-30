@@ -18,6 +18,9 @@ public struct SystemCheckResult: Equatable, Sendable {
         self.isAppleSilicon = isAppleSilicon
     }
 
+    /// Checks that Rosetta's own installer cannot fix.
+    public var blockingPassed: Bool { macOSSupported && enoughDisk && isAppleSilicon }
+
     public var allPassed: Bool { rosettaInstalled && macOSSupported && enoughDisk && isAppleSilicon }
 }
 
