@@ -88,6 +88,7 @@ public struct Bottle: Sendable {
     public var driveC: URL { path.appendingPathComponent("drive_c", isDirectory: true) }
     public var steamDirectory: URL { driveC.appendingPathComponent("Program Files (x86)/Steam", isDirectory: true) }
     public var steamExe: URL { steamDirectory.appendingPathComponent("steam.exe") }
+    public var steamUserdata: URL { steamDirectory.appendingPathComponent("userdata", isDirectory: true) }
     public var steamapps: URL { steamDirectory.appendingPathComponent("steamapps", isDirectory: true) }
 
     public var exists: Bool { FileManager.default.fileExists(atPath: configURL.path) }
@@ -106,32 +107,54 @@ public struct Bottle: Sendable {
     static let backendKey = "CX_GRAPHICS_BACKEND"
     static let msyncKey = "WINEMSYNC"
 
-    /// Returns `conf` with D3DMetal and MSync enabled in `[EnvironmentVariables]`. Existing values of the two
-    /// keys are replaced in place; missing ones are inserted right after the section header. Idempotent.
-    public static func enablingD3DMetal(in conf: String) -> String {
-        let wanted: [(key: String, line: String)] = [
-            (backendKey, "\"\(backendKey)\" = \"d3dmetal\""),
-            (msyncKey, "\"\(msyncKey)\" = \"1\""),
-        ]
+    static let hudKey = "MTL_HUD_ENABLED"
+
+    /// Returns `conf` with `key` set to `value` in `[EnvironmentVariables]` (nil removes the line).
+    /// An existing line is replaced in place; a missing one is inserted right after the section header, and the
+    /// section is appended when absent. Other sections and commented-out lines are left alone. Idempotent.
+    public static func settingEnvironment(_ key: String, _ value: String?, in conf: String) -> String {
         var lines = conf.components(separatedBy: "\n")
-        func index(of key: String) -> Int? {
-            lines.firstIndex {
-                $0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("\"\(key.lowercased())\"")
+        func isHeader(_ l: String) -> Bool {
+            let t = l.trimmingCharacters(in: .whitespaces)
+            return t.hasPrefix("[") && t.hasSuffix("]")
+        }
+        let header = lines.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "[EnvironmentVariables]" }
+        var matches: [Int] = []
+        if let h = header {
+            var i = h + 1
+            while i < lines.count, !isHeader(lines[i]) {
+                if lines[i].trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("\"\(key.lowercased())\"") {
+                    matches.append(i)
+                }
+                i += 1
             }
         }
-        var missing: [String] = []
-        for w in wanted {
-            if let i = index(of: w.key) { lines[i] = w.line } else { missing.append(w.line) }
+        guard let value else {
+            for i in matches.reversed() { lines.remove(at: i) }
+            return lines.joined(separator: "\n")
         }
-        if !missing.isEmpty {
-            if let h = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "[EnvironmentVariables]" }) {
-                lines.insert(contentsOf: missing, at: h + 1)
-            } else {
-                if let last = lines.last, last.isEmpty { lines.removeLast() }
-                lines += ["", "[EnvironmentVariables]"] + missing + [""]
-            }
+        let line = "\"\(key)\" = \"\(value)\""
+        if let first = matches.first {
+            lines[first] = line
+            for i in matches.dropFirst().reversed() { lines.remove(at: i) }
+        } else if let h = header {
+            lines.insert(line, at: h + 1)
+        } else {
+            if let last = lines.last, last.isEmpty { lines.removeLast() }
+            lines += ["", "[EnvironmentVariables]", line, ""]
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Returns `conf` with D3DMetal and MSync enabled in `[EnvironmentVariables]`. Idempotent.
+    public static func enablingD3DMetal(in conf: String) -> String {
+        let withSync = settingEnvironment(msyncKey, "1", in: conf)
+        return settingEnvironment(backendKey, "d3dmetal", in: withSync)
+    }
+
+    /// D3DMetal, MSync and the Metal HUD switch, so they also apply when the game is started from inside Steam.
+    public static func applyingEnvironment(metalHUD: Bool, in conf: String) -> String {
+        settingEnvironment(hudKey, metalHUD ? "1" : nil, in: enablingD3DMetal(in: conf))
     }
 
     public var hasD3DMetal: Bool {
@@ -144,6 +167,17 @@ public struct Bottle: Sendable {
         let conf = try String(contentsOf: configURL, encoding: .utf8)
         let updated = Self.enablingD3DMetal(in: conf)
         if updated != conf { try updated.write(to: configURL, atomically: true, encoding: .utf8) }
+    }
+
+    /// Writes D3DMetal/MSync/Metal HUD into cxbottle.conf. Returns true when the file changed.
+    @discardableResult
+    public func ensureEnvironment(metalHUD: Bool) throws -> Bool {
+        guard exists else { throw CrossOverError.bottleMissing(name) }
+        let conf = try String(contentsOf: configURL, encoding: .utf8)
+        let updated = Self.applyingEnvironment(metalHUD: metalHUD, in: conf)
+        guard updated != conf else { return false }
+        try updated.write(to: configURL, atomically: true, encoding: .utf8)
+        return true
     }
 }
 

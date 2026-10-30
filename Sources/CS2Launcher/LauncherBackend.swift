@@ -14,6 +14,8 @@ protocol LauncherBackend: Sendable {
     func installSteam(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws
     func cs2InstallState() -> CS2InstallState
     func isSteamRunning() async -> Bool
+    func isGameRunning() async -> Bool
+    func applyPerformanceTweaks(settings: Settings, steamRunning: Bool, log: @escaping @Sendable (String) -> Void)
     func launch(settings: Settings, launchGame: Bool, log: @escaping @Sendable (String) -> Void) throws -> RunningProcess
     func stopAll() async
 }
@@ -85,6 +87,8 @@ final class PreviewBackend: LauncherBackend, @unchecked Sendable {
         DispatchQueue.global().asyncAfter(deadline: .now() + 60) { p.terminate() }
         return p
     }
+    func isGameRunning() async -> Bool { false }
+    func applyPerformanceTweaks(settings: Settings, steamRunning: Bool, log: @escaping @Sendable (String) -> Void) {}
     func stopAll() async { steamProc?.terminate(); await nap(200) }
 }
 

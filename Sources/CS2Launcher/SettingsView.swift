@@ -16,13 +16,17 @@ struct SettingsView: View {
                 Text("Пустое поле — без ограничения. Добавляется как +fps_max.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Производительность") {
+                Toggle("Режим производительности", isOn: $state.settings.performanceMode)
+                note("Отключает оверлей Steam для CS2 и фоновые проверки лаунчера во время игры")
+            }
             Section("Графика") {
                 Toggle("Metal HUD", isOn: $state.settings.metalHUD)
                 note("Показывает FPS и нагрузку GPU поверх игры.")
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 360)
+        .frame(width: 520, height: 430)
     }
 
     private func note(_ s: String) -> some View {

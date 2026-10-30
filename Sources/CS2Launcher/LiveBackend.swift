@@ -57,6 +57,13 @@ struct LiveBackend: LauncherBackend {
 
     func isSteamRunning() async -> Bool { await GameLauncher.isSteamRunning(runner: runner) }
 
+    func isGameRunning() async -> Bool { await GameLauncher.isGameRunning(runner: runner) }
+
+    func applyPerformanceTweaks(settings: Settings, steamRunning: Bool,
+                                log: @escaping @Sendable (String) -> Void) {
+        PerformanceTweaks.apply(bottle: bottle, settings: settings, steamRunning: steamRunning, log: log)
+    }
+
     func launch(settings: Settings, launchGame: Bool,
                 log: @escaping @Sendable (String) -> Void) throws -> RunningProcess {
         try game.launch(settings: settings, launchGame: launchGame, log: log)

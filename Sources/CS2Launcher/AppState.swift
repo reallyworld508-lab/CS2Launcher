@@ -86,7 +86,13 @@ struct SetupFailure: Equatable {
 final class AppState {
     let backend: LauncherBackend
     var settings: LauncherSettings {
-        didSet { if settings != oldValue { saveSettings() } }
+        didSet {
+            guard settings != oldValue else { return }
+            saveSettings()
+            if settings.performanceMode != oldValue.performanceMode || settings.metalHUD != oldValue.metalHUD {
+                backend.applyPerformanceTweaks(settings: settings, steamRunning: isSteamRunning, log: makeLogger())
+            }
+        }
     }
     private(set) var logLines: [String] = []
     private(set) var stepStatus: [SetupStep: StepStatus]
@@ -97,6 +103,8 @@ final class AppState {
     // are separate; neither blocks a new launch. `isLaunching` only covers the short spawn phase.
     private(set) var isSteamRunning = false
     private(set) var gameLaunched = false
+    /// cs2.exe is alive; while true the monitor backs off (see `PollCadence`).
+    private(set) var isGameRunning = false
     private(set) var isLaunching = false
     private(set) var cs2State: CS2InstallState = .notInstalled
     private(set) var crossOverVersion: String?
@@ -114,7 +122,6 @@ final class AppState {
     private var monitorTask: Task<Void, Never>?
     private var logHandle: FileHandle?
     private static let maxLines = 5000
-    static let pollInterval: Duration = .seconds(5)
 
     var logFileURL: URL { backend.paths.logs.appendingPathComponent("launcher.log") }
 
@@ -185,16 +192,35 @@ final class AppState {
         startMonitoring()
     }
 
-    /// Polls Steam/CS2 state every few seconds; the CS2 step flips to done by itself.
+    /// Polls Steam/CS2 state; the CS2 step flips to done by itself. While the game runs (and performance mode
+    /// is on) it only checks every 30 s whether cs2.exe is still alive, to keep the CPU free for the game.
     private func startMonitoring() {
         guard monitorTask == nil else { return }
         monitorTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: AppState.pollInterval)
-                guard let self, !Task.isCancelled else { return }
-                self.refresh()
-                await self.refreshSteamRunning()
+                guard let self else { return }
+                let plan = PollCadence.plan(gameRunning: self.isGameRunning,
+                                            performanceMode: self.settings.performanceMode)
+                try? await Task.sleep(for: .seconds(plan.interval))
+                guard !Task.isCancelled else { return }
+                if plan.heavyWork {
+                    self.refresh()
+                    await self.refreshSteamRunning()
+                }
+                await self.refreshGameRunning()
             }
+        }
+    }
+
+    func refreshGameRunning() async {
+        var running = false
+        if PollCadence.shouldCheckGame(steamRunning: isSteamRunning, gameRunning: isGameRunning) {
+            running = await backend.isGameRunning()
+        }
+        if running != isGameRunning {
+            isGameRunning = running
+            log(running ? "CS2 запущена: фоновые проверки лаунчера замедлены" : "CS2 закрыта")
+            if !running { refresh(); await refreshSteamRunning() }
         }
     }
 
@@ -432,6 +458,7 @@ final class AppState {
         let logger = makeLogger()
         await refreshSteamRunning()
         statusText = game ? "Запуск игры…" : "Запуск Steam…"
+        backend.applyPerformanceTweaks(settings: s, steamRunning: isSteamRunning, log: logger)
         let p = try backend.launch(settings: s, launchGame: game, log: logger)
         if process?.isRunning != true { process = p }
         isSteamRunning = true
@@ -457,6 +484,7 @@ final class AppState {
             process = nil
             isSteamRunning = false
             gameLaunched = false
+            isGameRunning = false
             statusText = ""
             log("Всё остановлено")
         }

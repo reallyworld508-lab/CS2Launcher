@@ -71,5 +71,13 @@ public struct GameLauncher: Sendable {
         return code == 0
     }
 
+    /// True when a `cs2.exe` process is alive.
+    public static func isGameRunning(runner: ProcessRunning) async -> Bool {
+        let code = try? await runner.run(
+            executable: URL(fileURLWithPath: "/usr/bin/pgrep"), arguments: ["-f", "cs2.exe"],
+            environment: [:], currentDirectory: nil, onOutput: { _ in })
+        return code == 0
+    }
+
     public func stop() async { await wine.killAll() }
 }

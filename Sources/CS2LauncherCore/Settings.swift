@@ -5,11 +5,12 @@ public struct Settings: Codable, Equatable, Sendable {
     public var steamArgs: String = ""
     public var metalHUD: Bool = false
     public var fpsCap: Int? = nil
+    public var performanceMode: Bool = true
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case gameArgs, steamArgs, metalHUD, fpsCap
+        case gameArgs, steamArgs, metalHUD, fpsCap, performanceMode
     }
 
     public init(from decoder: Decoder) throws {
@@ -20,6 +21,7 @@ public struct Settings: Codable, Equatable, Sendable {
         if steamArgs == "-cef-disable-gpu-compositing" { steamArgs = "" }  // obsolete old default
         metalHUD = (try? c.decodeIfPresent(Bool.self, forKey: .metalHUD)) ?? d.metalHUD
         fpsCap = (try? c.decodeIfPresent(Int.self, forKey: .fpsCap)) ?? d.fpsCap
+        performanceMode = (try? c.decodeIfPresent(Bool.self, forKey: .performanceMode)) ?? d.performanceMode
     }
 
     public static func load(from url: URL) -> Settings {

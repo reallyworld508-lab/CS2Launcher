@@ -48,9 +48,17 @@ App settings window (⌘,):
 | Game arguments | Passed to CS2 after `-applaunch 730` (default `-novid`) |
 | Steam arguments | Extra `steam.exe` arguments |
 | FPS cap | Adds `+fps_max N`; empty means unlimited |
-| Metal HUD | `MTL_HUD_ENABLED=1`, shows FPS and GPU load |
+| Metal HUD | `MTL_HUD_ENABLED=1`, shows FPS and GPU load. Also written to `cxbottle.conf`, so it applies when you press PLAY inside Steam |
+| Performance mode | Disables the Steam overlay for CS2 and the launcher's background checks while the game runs (on by default) |
 
 `CX_GRAPHICS_BACKEND=d3dmetal` and `WINEMSYNC=1` are written to the bottle's `cxbottle.conf` during setup.
+
+## Performance
+
+- **Performance mode.** Under Wine the Steam overlay (`gameoverlayui64.exe`) can use more than half a CPU core and cause stutter. Before Steam starts, the launcher sets `OverlayAppEnable = "0"` for CS2 in `userdata/<id>/config/localconfig.vdf` (only while Steam is closed; the original is saved once as `localconfig.vdf.cs2l-backup`). Turning the mode off restores the value, but only where the launcher changed it. While CS2 runs, the launcher checks state at most every 30 seconds.
+- **Metal HUD** shows FPS and GPU load. Toggle it in Settings; the change is applied while Steam is closed.
+- **The first 1-3 matches** may stutter while D3DMetal builds its shader cache. It gets smoother afterwards.
+- **Recommended in-game settings:** fullscreen windowed at 1280x832 or native 16:10, MSAA off, FSR on. Stretched 4:3 is not possible on MacBook built-in displays because they have no 4:3 modes.
 
 ## How it works
 
