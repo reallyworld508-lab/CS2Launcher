@@ -6,9 +6,6 @@ protocol LauncherBackend: Sendable {
     func systemCheck() async -> SystemCheckResult
     func isWineInstalled() -> Bool
     func installWine(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws
-    func findGPTKImage() -> URL?
-    func isD3DMetalInstalled() -> Bool
-    func installD3DMetal(from dmg: URL, log: @escaping @Sendable (String) -> Void) async throws
     func isPrefixReady() -> Bool
     func createPrefix(log: @escaping @Sendable (String) -> Void) async throws
     func applySettings(_ s: Settings, log: @escaping @Sendable (String) -> Void) async throws
@@ -35,7 +32,7 @@ final class FakeRunningProcess: RunningProcess, @unchecked Sendable {
 final class PreviewBackend: LauncherBackend, @unchecked Sendable {
     let paths: Paths
     private let lock = NSLock()
-    private var wine = false, d3d = false, prefix = false, steam = false, cs2 = false
+    private var wine = false, prefix = false, steam = false, cs2 = false
 
     init(paths: Paths = Paths(root: FileManager.default.temporaryDirectory
         .appendingPathComponent("CS2LauncherPreview", isDirectory: true))) {
@@ -57,16 +54,6 @@ final class PreviewBackend: LauncherBackend, @unchecked Sendable {
         for i in 1...10 { await nap(150); progress(Double(i) / 10) }
         log("[preview] Wine установлен")
         set { wine = true }
-    }
-    func findGPTKImage() -> URL? {
-        URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Downloads/Game_Porting_Toolkit.dmg")
-    }
-    func isD3DMetalInstalled() -> Bool { get { d3d } }
-    func installD3DMetal(from dmg: URL, log: @escaping @Sendable (String) -> Void) async throws {
-        log("[preview] Монтирование \(dmg.lastPathComponent)")
-        await nap(800)
-        log("[preview] D3DMetal скопирован")
-        set { d3d = true }
     }
     func isPrefixReady() -> Bool { get { prefix } }
     func createPrefix(log: @escaping @Sendable (String) -> Void) async throws {

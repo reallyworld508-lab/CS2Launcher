@@ -40,14 +40,18 @@ public struct GameLauncher: Sendable {
     public static func steamArguments(paths: Paths, settings: Settings, launchGame: Bool) -> [String] {
         var args = [paths.steamExe.path] + splitArguments(settings.steamArgs)
         if launchGame {
-            args += ["-applaunch", String(appID)] + splitArguments(settings.gameArgs)
+            let user = splitArguments(settings.gameArgs)
+            args += ["-applaunch", String(appID)]
+            let hasRenderer = user.contains { ["-vulkan", "-dx11"].contains($0.lowercased()) }
+            if !hasRenderer { args.append("-vulkan") }
+            args += user
             if let cap = settings.fpsCap, cap > 0 { args += ["+fps_max", "\(cap)"] }
         }
         return args
     }
 
     public static func environment(for settings: Settings) -> [String: String] {
-        var env: [String: String] = ["D3DM_SUPPORT_DXR": "0"]
+        var env: [String: String] = [:]
         if settings.metalHUD { env["MTL_HUD_ENABLED"] = "1" }
         if settings.msync { env["WINEMSYNC"] = "1"; env["WINEESYNC"] = "1" }
         if settings.advertiseAVX { env["ROSETTA_ADVERTISE_AVX"] = "1" }

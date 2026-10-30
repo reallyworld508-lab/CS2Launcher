@@ -54,7 +54,22 @@ final class LauncherTests: XCTestCase {
         let p = Paths(root: makeTempDir()); var s = Settings(); s.fpsCap = 144
         XCTAssertEqual(GameLauncher.steamArguments(paths: p, settings: s, launchGame: true),
                        [p.steamExe.path, "-cef-disable-gpu-compositing", "-applaunch", "730",
-                        "-novid", "-fullscreen", "+fps_max", "144"])
+                        "-vulkan", "-novid", "+fps_max", "144"])
+    }
+    func testVulkanInjectionRules() {
+        let p = Paths(root: makeTempDir()); var s = Settings()
+        func args() -> [String] { GameLauncher.steamArguments(paths: p, settings: s, launchGame: true) }
+        XCTAssertEqual(args().filter { $0.lowercased() == "-vulkan" }.count, 1)
+        s.gameArgs = "-novid -dx11"
+        XCTAssertFalse(args().contains("-vulkan")); XCTAssertTrue(args().contains("-dx11"))
+        s.gameArgs = "-novid -VULKAN"
+        XCTAssertEqual(args().filter { $0.lowercased() == "-vulkan" }.count, 1)
+        XCTAssertTrue(args().contains("-VULKAN"))
+        s.gameArgs = "-DX11"
+        XCTAssertFalse(args().contains("-vulkan"))
+        s.gameArgs = ""
+        XCTAssertEqual(Array(args().suffix(3)), ["-applaunch", "730", "-vulkan"])
+        XCTAssertFalse(GameLauncher.steamArguments(paths: p, settings: s, launchGame: false).contains("-vulkan"))
     }
     func testSteamArgumentsNoFpsWhenZeroOrNil() {
         let p = Paths(root: makeTempDir()); var s = Settings()
@@ -65,7 +80,7 @@ final class LauncherTests: XCTestCase {
 
     func testEnvironmentToggles() {
         var s = Settings(); s.metalHUD = false; s.msync = false; s.advertiseAVX = false
-        XCTAssertEqual(GameLauncher.environment(for: s), ["D3DM_SUPPORT_DXR": "0"])
+        XCTAssertEqual(GameLauncher.environment(for: s), [:])
         s.metalHUD = true
         XCTAssertEqual(GameLauncher.environment(for: s)["MTL_HUD_ENABLED"], "1")
         s.msync = true
@@ -91,7 +106,8 @@ final class LauncherTests: XCTestCase {
         XCTAssertEqual(mock.calls.count, 1)
         XCTAssertEqual(mock.calls[0].arguments.first, paths.steamExe.path)
         XCTAssertTrue(mock.calls[0].arguments.contains("730"))
-        XCTAssertEqual(mock.calls[0].environment["D3DM_SUPPORT_DXR"], "0")
+        XCTAssertNil(mock.calls[0].environment["D3DM_SUPPORT_DXR"])
+        XCTAssertTrue(mock.calls[0].arguments.contains("-vulkan"))
         XCTAssertEqual(mock.calls[0].environment["WINEPREFIX"], paths.prefix.path)
     }
 

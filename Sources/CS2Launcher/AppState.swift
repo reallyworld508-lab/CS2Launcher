@@ -3,14 +3,13 @@ import Observation
 import CS2LauncherCore
 
 enum SetupStep: String, CaseIterable, Identifiable {
-    case systemCheck, wine, gptk, prefix, steam, cs2
+    case systemCheck, wine, prefix, steam, cs2
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .systemCheck: "Проверка системы"
         case .wine: "Wine"
-        case .gptk: "Game Porting Toolkit"
         case .prefix: "Префикс Wine"
         case .steam: "Steam"
         case .cs2: "Counter-Strike 2"
@@ -19,8 +18,7 @@ enum SetupStep: String, CaseIterable, Identifiable {
     var explanation: String {
         switch self {
         case .systemCheck: "Apple Silicon, Rosetta, версия macOS и свободное место (от 45 ГБ)."
-        case .wine: "Загрузка среды Wine, в которой будет работать Windows-версия игры."
-        case .gptk: "Скачайте Game Porting Toolkit с developer.apple.com (бесплатный Apple ID)"
+        case .wine: "Загрузка Wine со встроенным Vulkan (MoltenVK) — в нём работает Windows-версия игры."
         case .prefix: "Создание изолированного Windows-окружения для Steam и игры."
         case .steam: "Загрузка и установка Windows-клиента Steam в префикс."
         case .cs2: "Откройте Steam, войдите и установите Counter-Strike 2"
@@ -30,7 +28,6 @@ enum SetupStep: String, CaseIterable, Identifiable {
         switch self {
         case .systemCheck: "checkmark.shield"
         case .wine: "wineglass"
-        case .gptk: "cpu"
         case .prefix: "shippingbox"
         case .steam: "gamecontroller"
         case .cs2: "scope"
@@ -57,7 +54,6 @@ final class AppState {
     private(set) var logLines: [String] = []
     private(set) var stepStatus: [SetupStep: StepStatus]
     private(set) var systemCheckResult: SystemCheckResult?
-    private(set) var gptkImage: URL?
     private(set) var isGameRunning = false
     private(set) var statusText = ""
 
@@ -101,10 +97,8 @@ final class AppState {
 
     /// Re-derives done-ness from the backend. Running/failed steps are left alone unless now satisfied.
     func refresh() {
-        gptkImage = backend.findGPTKImage()
         if let r = systemCheckResult { set(.systemCheck, r.allPassed ? .done : .failed(Self.describe(r))) }
         derive(.wine, backend.isWineInstalled())
-        derive(.gptk, backend.isD3DMetalInstalled())
         derive(.prefix, backend.isPrefixReady())
         derive(.steam, backend.isSteamInstalled())
         derive(.cs2, backend.isCS2Installed())
@@ -143,13 +137,6 @@ final class AppState {
     func installWine() {
         runStep(.wine, "Установка Wine") { [backend] progress, log in
             try await backend.installWine(progress: progress, log: log)
-        }
-    }
-
-    func chooseGPTK(url: URL) {
-        gptkImage = url
-        runStep(.gptk, "Установка D3DMetal") { [backend] _, log in
-            try await backend.installD3DMetal(from: url, log: log)
         }
     }
 

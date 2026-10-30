@@ -33,20 +33,6 @@ struct LiveBackend: LauncherBackend {
         try await runtime.installWine(progress: progress, log: log)
     }
 
-    func findGPTKImage() -> URL? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        return RuntimeManager.findGPTKImage(in: [
-            home.appendingPathComponent("Downloads"),
-            home.appendingPathComponent("Desktop"),
-        ])
-    }
-
-    func isD3DMetalInstalled() -> Bool { runtime.isD3DMetalInstalled }
-
-    func installD3DMetal(from dmg: URL, log: @escaping @Sendable (String) -> Void) async throws {
-        try await runtime.installD3DMetal(fromGPTKImage: dmg, log: log)
-    }
-
     func isPrefixReady() -> Bool { prefix.isInitialized }
 
     func createPrefix(log: @escaping @Sendable (String) -> Void) async throws {

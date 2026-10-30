@@ -10,7 +10,7 @@ func makeTempDir() -> URL {
 final class SettingsTests: XCTestCase {
     func testDefaults() {
         let s = Settings()
-        XCTAssertEqual(s.gameArgs, "-novid -fullscreen")
+        XCTAssertEqual(s.gameArgs, "-novid")
         XCTAssertEqual(s.steamArgs, "-cef-disable-gpu-compositing")
         XCTAssertFalse(s.metalHUD); XCTAssertFalse(s.retinaMode)
         XCTAssertTrue(s.msync); XCTAssertTrue(s.advertiseAVX)
@@ -27,7 +27,7 @@ final class SettingsTests: XCTestCase {
         try Data(#"{"metalHUD": true}"#.utf8).write(to: url)
         let s = Settings.load(from: url)
         XCTAssertTrue(s.metalHUD)
-        XCTAssertEqual(s.gameArgs, "-novid -fullscreen")
+        XCTAssertEqual(s.gameArgs, "-novid")
         XCTAssertTrue(s.msync)
     }
     func testCorruptAndMissingFile() throws {

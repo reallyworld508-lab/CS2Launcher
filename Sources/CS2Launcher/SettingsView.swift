@@ -9,6 +9,7 @@ struct SettingsView: View {
         Form {
             Section("Параметры запуска") {
                 TextField("Аргументы игры", text: $state.settings.gameArgs)
+                note("Флаг -vulkan добавляется автоматически; чтобы использовать DirectX 11, укажите -dx11.")
                 TextField("Аргументы Steam", text: $state.settings.steamArgs)
                 TextField("Ограничение FPS", value: $state.settings.fpsCap, format: .number,
                           prompt: Text("Без ограничения"))

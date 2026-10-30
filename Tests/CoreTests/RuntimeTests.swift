@@ -34,22 +34,6 @@ final class RuntimeTests: XCTestCase {
         XCTAssertTrue(runner.calls.isEmpty)
     }
 
-    func testFindGPTKImagePicksNewest() throws {
-        let dir = makeTempDir()
-        let fm = FileManager.default
-        func make(_ name: String, age: TimeInterval) throws {
-            let u = dir.appendingPathComponent(name)
-            try Data("x".utf8).write(to: u)
-            try fm.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -age)], ofItemAtPath: u.path)
-        }
-        try make("Game_Porting_Toolkit_2.0.dmg", age: 1000)
-        try make("game porting toolkit 3.0.dmg", age: 10)
-        try make("Other.dmg", age: 1)
-        try make("Game Porting Toolkit.txt", age: 0)
-        XCTAssertEqual(RuntimeManager.findGPTKImage(in: [dir])?.lastPathComponent, "game porting toolkit 3.0.dmg")
-        XCTAssertNil(RuntimeManager.findGPTKImage(in: [makeTempDir()]))
-    }
-
     func testRegistryFile() {
         var s = Settings(); s.retinaMode = true
         let on = PrefixManager.registryFile(for: s)
@@ -84,29 +68,35 @@ final class RuntimeTests: XCTestCase {
         let paths = Paths(root: makeTempDir())
         let m = RuntimeManager(paths: paths, downloader: FixedDownloader(bytes: Data()), runner: MockProcessRunner())
         let pm = PrefixManager(wine: WineRunner(paths: paths, runner: MockProcessRunner()))
-        XCTAssertFalse(m.isWineInstalled); XCTAssertFalse(m.isD3DMetalInstalled); XCTAssertFalse(pm.isInitialized)
+        XCTAssertFalse(m.isWineInstalled); XCTAssertFalse(pm.isInitialized)
         let fm = FileManager.default
         try fm.createDirectory(at: paths.wineBin, withIntermediateDirectories: true)
-        try Data().write(to: paths.wineBin.appendingPathComponent("wine64"))
-        try fm.createDirectory(at: paths.wineRoot.appendingPathComponent("lib/external/D3DMetal.framework"), withIntermediateDirectories: true)
+        try Data().write(to: paths.wineBin.appendingPathComponent("wine"))
         try fm.createDirectory(at: paths.prefix.appendingPathComponent("drive_c"), withIntermediateDirectories: true)
-        XCTAssertTrue(m.isWineInstalled); XCTAssertTrue(m.isD3DMetalInstalled); XCTAssertTrue(pm.isInitialized)
+        XCTAssertTrue(pm.isInitialized)
+        // Binary present but no marker: old runtime, treated as not installed.
+        XCTAssertFalse(m.isWineInstalled)
+        let marker = paths.wineRoot.appendingPathComponent(".cs2l-runtime-version")
+        try "Game-Porting-Toolkit-3.0-3".write(to: marker, atomically: true, encoding: .utf8)
+        XCTAssertFalse(m.isWineInstalled)
+        try RuntimeManager.wineRelease.version.write(to: marker, atomically: true, encoding: .utf8)
+        XCTAssertTrue(m.isWineInstalled)
+        // Marker without a binary is not enough.
+        try fm.removeItem(at: paths.wineBin.appendingPathComponent("wine"))
+        XCTAssertFalse(m.isWineInstalled)
     }
 
-    func testInstallD3DMetalRequiresWine() async {
-        let m = RuntimeManager(paths: Paths(root: makeTempDir()), downloader: FixedDownloader(bytes: Data()), runner: MockProcessRunner())
-        do { try await m.installD3DMetal(fromGPTKImage: URL(fileURLWithPath: "/x.dmg"), log: { _ in }); XCTFail() }
-        catch { XCTAssertEqual(error as? RuntimeError, .commandFailed("wine not installed", -1)) }
+    func testPinnedRelease() {
+        XCTAssertEqual(RuntimeManager.wineRelease.version, "wine-devel-11.20")
+        XCTAssertEqual(RuntimeManager.wineRelease.sha256.count, 64)
     }
 
-    func testParseMountPoint() {
-        let plist = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <plist version="1.0"><dict><key>system-entities</key><array>
-        <dict><key>dev-entry</key><string>/dev/disk4</string></dict>
-        <dict><key>mount-point</key><string>/Volumes/GPTK</string></dict>
-        </array></dict></plist>
-        """
-        XCTAssertEqual(RuntimeManager.parseMountPoint(plist: plist), "/Volumes/GPTK")
+    func testFindWineDirHandlesWineDevelLayout() throws {
+        let root = makeTempDir()
+        let bin = root.appendingPathComponent("Wine Devel.app/Contents/Resources/wine/bin")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try Data().write(to: bin.appendingPathComponent("wine"))
+        try Data().write(to: bin.appendingPathComponent("wineserver"))
+        XCTAssertEqual(RuntimeManager.findWineDir(in: root)?.lastPathComponent, "wine")
     }
 }

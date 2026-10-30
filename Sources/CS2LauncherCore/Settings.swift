@@ -1,7 +1,7 @@
 import Foundation
 
 public struct Settings: Codable, Equatable, Sendable {
-    public var gameArgs: String = "-novid -fullscreen"
+    public var gameArgs: String = "-novid"
     public var steamArgs: String = "-cef-disable-gpu-compositing"
     public var metalHUD: Bool = false
     public var retinaMode: Bool = false

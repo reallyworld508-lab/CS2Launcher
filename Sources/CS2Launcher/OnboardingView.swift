@@ -1,10 +1,8 @@
 import SwiftUI
-import UniformTypeIdentifiers
 import CS2LauncherCore
 
 struct OnboardingView: View {
     @Environment(AppState.self) private var state
-    @State private var importing = false
 
     var body: some View {
         ScrollView {
@@ -15,7 +13,7 @@ struct OnboardingView: View {
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 12)
                 ForEach(SetupStep.allCases) { step in
-                    StepRow(step: step, importing: $importing)
+                    StepRow(step: step)
                     if step != SetupStep.allCases.last { Divider() }
                 }
             }
@@ -23,20 +21,12 @@ struct OnboardingView: View {
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.diskImage]) { result in
-            if case .success(let url) = result {
-                let scoped = url.startAccessingSecurityScopedResource()
-                state.chooseGPTK(url: url)
-                if scoped { /* sandbox is off; keep access for the install task */ }
-            }
-        }
     }
 }
 
 private struct StepRow: View {
     @Environment(AppState.self) private var state
     let step: SetupStep
-    @Binding var importing: Bool
 
     var body: some View {
         let status = state.status(step)
@@ -75,10 +65,7 @@ private struct StepRow: View {
         case .done:
             Text("Готово").font(.caption).foregroundStyle(.green)
         case .pending:
-            if step == .gptk, let url = state.gptkImage {
-                Text("Найден: \(url.path)").font(.caption).foregroundStyle(.secondary)
-                    .lineLimit(1).truncationMode(.middle)
-            }
+            EmptyView()
         }
     }
 
@@ -92,15 +79,6 @@ private struct StepRow: View {
             case .wine:
                 if !s.isDone {
                     Button(failed(s) ? "Повторить" : "Установить") { state.installWine() }
-                        .disabled(busy || !unlocked)
-                }
-            case .gptk:
-                if !s.isDone {
-                    if let url = state.gptkImage {
-                        Button("Использовать") { state.chooseGPTK(url: url) }
-                            .disabled(busy || !unlocked)
-                    }
-                    Button("Выбрать .dmg…") { importing = true }
                         .disabled(busy || !unlocked)
                 }
             case .prefix:
