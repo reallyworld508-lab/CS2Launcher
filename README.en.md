@@ -6,6 +6,8 @@ CS2 Launcher is a macOS (SwiftUI) app that lets Apple Silicon Macs run the Windo
 
 > The app's UI is currently Russian only.
 
+> **Status:** installing Wine, the prefix and Steam, signing in to Steam and downloading CS2 are verified on an M2 / macOS 26. Launching CS2 itself through MoltenVK is not verified yet.
+
 ## Requirements
 
 - Apple Silicon Mac
