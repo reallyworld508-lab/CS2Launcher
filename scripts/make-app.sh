@@ -2,11 +2,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build -c release --product CS2Launcher
-BIN="$(swift build -c release --product CS2Launcher --show-bin-path)/CS2Launcher"
+BIN_DIR="$(swift build -c release --product CS2Launcher --show-bin-path)"
+BIN="$BIN_DIR/CS2Launcher"
 APP="build/CS2 Launcher.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/CS2Launcher"
+cp -R "$BIN_DIR/CS2Launcher_CS2LauncherCore.bundle" "$APP/Contents/Resources/"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

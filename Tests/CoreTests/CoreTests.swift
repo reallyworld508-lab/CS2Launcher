@@ -11,7 +11,7 @@ final class SettingsTests: XCTestCase {
     func testDefaults() {
         let s = Settings()
         XCTAssertEqual(s.gameArgs, "-novid")
-        XCTAssertEqual(s.steamArgs, "-cef-disable-gpu-compositing")
+        XCTAssertEqual(s.steamArgs, "")
         XCTAssertFalse(s.metalHUD); XCTAssertFalse(s.retinaMode)
         XCTAssertTrue(s.msync); XCTAssertTrue(s.advertiseAVX)
         XCTAssertNil(s.fpsCap)

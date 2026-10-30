@@ -65,6 +65,13 @@ public struct SteamInstaller: Sendable {
             }
             try await Task.sleep(for: pollInterval)
         }
+        do {
+            let patch = SteamWebHelperPatch(paths: wine.paths, wrapperData: try SteamWebHelperPatch.bundledWrapper())
+            let dirs = try patch.apply()
+            if !dirs.isEmpty { log("Patched steamwebhelper in \(dirs.map(\.lastPathComponent).joined(separator: ", "))") }
+        } catch {
+            log("Could not patch steamwebhelper: \(error.localizedDescription)")
+        }
         log("Steam is installed.")
         progress(1.0)
     }

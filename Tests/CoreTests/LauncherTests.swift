@@ -21,6 +21,24 @@ private final class DoubleBox: @unchecked Sendable {
 }
 
 final class LauncherTests: XCTestCase {
+    static let verifyFlags = ["-noverifyfiles", "-norepairfiles", "-nobootstrapupdate", "-skipinitialbootstrap"]
+
+    func testSteamArgumentsDedupeVerifyFlags() {
+        let p = Paths(root: makeTempDir()); var s = Settings()
+        s.steamArgs = "-NoVerifyFiles -foo"
+        let a = GameLauncher.steamArguments(paths: p, settings: s, launchGame: false)
+        for f in Self.verifyFlags { XCTAssertEqual(a.filter { $0.lowercased() == f }.count, 1, f) }
+        XCTAssertTrue(a.contains("-foo"))
+    }
+
+    func testOldDefaultSteamArgsMigrated() throws {
+        let url = makeTempDir().appendingPathComponent("s.json")
+        try Data(#"{"steamArgs":"-cef-disable-gpu-compositing"}"#.utf8).write(to: url)
+        XCTAssertEqual(Settings.load(from: url).steamArgs, "")
+        try Data(#"{"steamArgs":"-foo"}"#.utf8).write(to: url)
+        XCTAssertEqual(Settings.load(from: url).steamArgs, "-foo")
+    }
+
     private func makeWine() -> (WineRunner, MockProcessRunner, Paths) {
         let paths = Paths(root: makeTempDir())
         let mock = MockProcessRunner()
@@ -48,13 +66,13 @@ final class LauncherTests: XCTestCase {
     func testSteamArgumentsWithoutGame() {
         let p = Paths(root: makeTempDir()); let s = Settings()
         XCTAssertEqual(GameLauncher.steamArguments(paths: p, settings: s, launchGame: false),
-                       [p.steamExe.path, "-cef-disable-gpu-compositing"])
+                       [p.steamExe.path] + Self.verifyFlags)
     }
     func testSteamArgumentsWithGameAndFps() {
         let p = Paths(root: makeTempDir()); var s = Settings(); s.fpsCap = 144
         XCTAssertEqual(GameLauncher.steamArguments(paths: p, settings: s, launchGame: true),
-                       [p.steamExe.path, "-cef-disable-gpu-compositing", "-applaunch", "730",
-                        "-vulkan", "-novid", "+fps_max", "144"])
+                       ([p.steamExe.path] + Self.verifyFlags + ["-applaunch", "730",
+                        "-vulkan", "-novid", "+fps_max", "144"]))
     }
     func testVulkanInjectionRules() {
         let p = Paths(root: makeTempDir()); var s = Settings()

@@ -38,7 +38,10 @@ public struct GameLauncher: Sendable {
     }
 
     public static func steamArguments(paths: Paths, settings: Settings, launchGame: Bool) -> [String] {
-        var args = [paths.steamExe.path] + splitArguments(settings.steamArgs)
+        let user = splitArguments(settings.steamArgs)
+        let lower = Set(user.map { $0.lowercased() })
+        let required = ["-noverifyfiles", "-norepairfiles", "-nobootstrapupdate", "-skipinitialbootstrap"]
+        var args = [paths.steamExe.path] + required.filter { !lower.contains($0) } + user
         if launchGame {
             let user = splitArguments(settings.gameArgs)
             args += ["-applaunch", String(appID)]
@@ -62,6 +65,13 @@ public struct GameLauncher: Sendable {
                        log: @escaping @Sendable (String) -> Void) throws -> RunningProcess {
         guard FileManager.default.fileExists(atPath: wine.paths.steamExe.path) else {
             throw LauncherError.steamNotInstalled
+        }
+        do {
+            let patch = SteamWebHelperPatch(paths: wine.paths, wrapperData: try SteamWebHelperPatch.bundledWrapper())
+            let dirs = try patch.apply()
+            if !dirs.isEmpty { log("Patched steamwebhelper in \(dirs.map(\.lastPathComponent).joined(separator: ", "))") }
+        } catch {
+            log("Could not patch steamwebhelper: \(error.localizedDescription)")
         }
         log(launchGame ? "Starting Steam and launching Counter-Strike 2..." : "Starting Steam...")
         return try wine.start(

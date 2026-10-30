@@ -2,7 +2,7 @@ import Foundation
 
 public struct Settings: Codable, Equatable, Sendable {
     public var gameArgs: String = "-novid"
-    public var steamArgs: String = "-cef-disable-gpu-compositing"
+    public var steamArgs: String = ""
     public var metalHUD: Bool = false
     public var retinaMode: Bool = false
     public var msync: Bool = true
@@ -20,6 +20,7 @@ public struct Settings: Codable, Equatable, Sendable {
         let d = Settings()
         gameArgs = (try? c.decodeIfPresent(String.self, forKey: .gameArgs)) ?? d.gameArgs
         steamArgs = (try? c.decodeIfPresent(String.self, forKey: .steamArgs)) ?? d.steamArgs
+        if steamArgs == "-cef-disable-gpu-compositing" { steamArgs = "" }  // obsolete old default
         metalHUD = (try? c.decodeIfPresent(Bool.self, forKey: .metalHUD)) ?? d.metalHUD
         retinaMode = (try? c.decodeIfPresent(Bool.self, forKey: .retinaMode)) ?? d.retinaMode
         msync = (try? c.decodeIfPresent(Bool.self, forKey: .msync)) ?? d.msync
