@@ -1,0 +1,201 @@
+name: Build Wine engine
+
+# Builds the CS2 Launcher Wine engine from CodeWeavers' published CrossOver sources.
+# All logic lives in scripts/wine/build.sh (runnable locally); this file only wires CI.
+#
+#   - Manual run:  Actions -> "Build Wine engine" -> Run workflow (artifact only, or set
+#                  release_tag to also publish a release).
+#   - Tag push:    git tag wine-<build> && git push origin wine-<build>   (publishes a release)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: "Build number used in the file name (cs2l-wine-crossover-26.3.0-<build>-x86_64.tar.xz)"
+        required: true
+        default: "1"
+      runner:
+        description: "Runner image. Intel is native x86_64; macos-26 is Apple silicon and builds under Rosetta."
+        type: choice
+        default: macos-15-intel
+        options:
+          - macos-15-intel
+          - macos-26-intel
+          - macos-26
+      with_gstreamer:
+        description: "Also build winegstreamer (adds GStreamer to the bundle)"
+        type: boolean
+        default: false
+      release_tag:
+        description: "Optional: publish a GitHub release with this tag (e.g. wine-1) after a green build"
+        required: false
+        default: ""
+  push:
+    tags:
+      - "wine-*"
+
+concurrency:
+  group: build-wine-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # Pinned in scripts/wine/build.sh (CX_SHA256); the fetch step prints the real hash every run.
+  WORKDIR: ${{ github.workspace }}/.wine-work
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+  HOMEBREW_NO_ANALYTICS: "1"
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner || 'macos-15-intel' }}
+    timeout-minutes: 300
+    permissions:
+      contents: write          # create the release and upload its assets
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build number
+        id: meta
+        shell: bash
+        env:
+          IN_BUILD: ${{ inputs.build }}
+          IN_TAG: ${{ inputs.release_tag }}
+          IN_GST: ${{ inputs.with_gstreamer }}
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            build="${GITHUB_REF_NAME#wine-}"
+            tag="${GITHUB_REF_NAME}"
+          else
+            build="$IN_BUILD"
+            tag="$IN_TAG"
+          fi
+          case "$build" in
+            ""|*[!A-Za-z0-9._-]*) echo "::error::invalid build number '$build'"; exit 1 ;;
+          esac
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "BUILD_NUMBER=$build" >> "$GITHUB_ENV"
+          echo "WITH_GSTREAMER=$([ "$IN_GST" = true ] && echo 1 || echo 0)" >> "$GITHUB_ENV"
+
+      # Rosetta is only needed (and installed) when an Apple silicon runner is chosen
+      - name: Rosetta
+        if: runner.arch == 'ARM64'
+        run: /usr/sbin/softwareupdate --install-rosetta --agree-to-license || true
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Homebrew/downloads
+          key: brew-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/wine/build.sh') }}
+          restore-keys: |
+            brew-${{ runner.os }}-${{ runner.arch }}-
+
+      # CodeWeavers' server is slow and 149 MB: keep the tarball (the pinned hash is verified anyway)
+      - name: Cache CrossOver source tarball
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.WORKDIR }}/downloads
+          key: crossover-sources-26.3.0-ac99c8ca
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.WORKDIR }}/ccache
+          key: ccache-wine-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-wine-${{ runner.arch }}-
+
+      - name: Dependencies
+        run: scripts/wine/build.sh deps
+
+      - name: Download and verify source
+        run: scripts/wine/build.sh fetch
+
+      - name: Patch
+        run: scripts/wine/build.sh patch
+
+      - name: Configure
+        run: scripts/wine/build.sh configure
+
+      - name: Compile
+        run: scripts/wine/build.sh make
+
+      - name: Install
+        run: scripts/wine/build.sh install
+
+      - name: Bundle dylibs
+        run: scripts/wine/build.sh bundle
+
+      - name: Verify bundle (no /usr/local, no /opt/homebrew)
+        run: scripts/wine/build.sh verify
+
+      - name: Smoke test
+        run: scripts/wine/build.sh smoke
+
+      - name: Package
+        run: scripts/wine/build.sh package
+
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.WORKDIR }}/ccache
+          key: ccache-wine-${{ runner.arch }}-${{ github.run_id }}
+
+      - name: Job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Wine engine ${BUILD_NUMBER}"
+            [ -f "$WORKDIR/source.sha256" ] && echo "- source sha256: \`$(cat "$WORKDIR/source.sha256")\`"
+            [ -f "$WORKDIR/minos.txt" ] && echo "- highest minimum macOS in the bundle: $(cat "$WORKDIR/minos.txt")"
+            ls "$WORKDIR/out" 2>/dev/null | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cs2l-wine-crossover-26.3.0-${{ steps.meta.outputs.build }}-x86_64
+          path: |
+            ${{ env.WORKDIR }}/out/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-build-logs-${{ steps.meta.outputs.build }}
+          path: |
+            ${{ env.WORKDIR }}/logs/*
+            ${{ env.WORKDIR }}/build/config.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Publish release
+        if: steps.meta.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          BUILD: ${{ steps.meta.outputs.build }}
+        shell: bash
+        run: |
+          a="cs2l-wine-crossover-26.3.0-${BUILD}-x86_64"
+          sha="$(cut -d' ' -f1 "$WORKDIR/out/$a.tar.xz.sha256")"
+          src="$(cat "$WORKDIR/source.sha256")"
+          notes="Wine engine built from CodeWeavers' CrossOver 26.3.0 sources (LGPL), x86_64 for Rosetta 2, WoW64.
+
+          - archive sha256: \`$sha\`
+          - source: https://media.codeweavers.com/pub/crossover/source/crossover-sources-26.3.0.tar.gz (sha256 \`$src\`)
+          - recipe: scripts/wine/build.sh at ${GITHUB_SHA}
+          - Apple's D3DMetal is not included; see docs/engine.md."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$WORKDIR/out/$a.tar.xz" "$WORKDIR/out/$a.tar.xz.sha256" --clobber
+          else
+            gh release create "$TAG" "$WORKDIR/out/$a.tar.xz" "$WORKDIR/out/$a.tar.xz.sha256" \
+              --title "Wine engine $BUILD (CrossOver 26.3.0 sources)" --notes "$notes" --target "$GITHUB_SHA"
+          fi
