@@ -6,7 +6,7 @@ CS2 Launcher is a macOS (SwiftUI) app that lets Apple Silicon Macs run the Windo
 
 > The app's UI is currently Russian only.
 
-> **Status:** installing Wine, the prefix and Steam, signing in to Steam and downloading CS2 are verified on an M2 / macOS 26. Launching CS2 itself through MoltenVK is not verified yet.
+> **Status:** installing Wine, the prefix and Steam, signing in to Steam and downloading CS2 are verified on an M2 / macOS 26. CS2 starts with `-vulkan` and reaches the main menu inside the engine, but the picture freezes on the splash screen: MoltenVK lacks a feature CS2's Vulkan renderer needs (`Metal does not allow uncompressed views of compressed images`). A different graphics backend is being investigated.
 
 ## Requirements
 
