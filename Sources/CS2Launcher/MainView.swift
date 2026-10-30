@@ -22,19 +22,19 @@ struct MainView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.extraLarge)
-            .disabled(state.isGameRunning)
+            .disabled(state.isLaunching)
             .keyboardShortcut(.defaultAction)
 
             HStack {
                 Button("Стоп", systemImage: "stop.fill") { state.stop() }
-                    .disabled(!state.isGameRunning)
+                    .disabled(!(state.isSteamRunning || state.isLaunching))
                 Button("Открыть Steam", systemImage: "gamecontroller") { state.openSteam() }
-                    .disabled(state.isGameRunning)
+                    .disabled(state.isSteamRunning || state.isLaunching)
             }
 
             HStack(spacing: 6) {
                 if state.isBusy { ProgressView().controlSize(.small) }
-                Text(state.statusText.isEmpty ? "Готово к игре" : state.statusText)
+                Text(state.statusText.isEmpty ? idleText : state.statusText)
                     .font(state.isBusy ? .headline : .body)
                     .foregroundStyle(state.isBusy ? .primary : .secondary)
             }
@@ -46,6 +46,11 @@ struct MainView: View {
         }
         .frame(maxWidth: .infinity)
         .padding()
+    }
+
+    private var idleText: String {
+        if state.gameLaunched { return "Игра запущена" }
+        return state.isSteamRunning ? "Steam запущен" : "Готово к игре"
     }
 
     private var summary: some View {

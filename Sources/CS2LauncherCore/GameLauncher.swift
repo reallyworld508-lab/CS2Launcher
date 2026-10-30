@@ -11,6 +11,7 @@ public struct GameLauncher: Sendable {
             "drive_c/Program Files (x86)/Steam/steamapps/common/Counter-Strike Global Offensive/game/bin/win64/cs2.exe")
     }
 
+    /// Executable-only check; use `SteamLibrary.cs2State()` for the full picture.
     public var isCS2Installed: Bool {
         FileManager.default.fileExists(atPath: cs2Executable.path)
     }
@@ -77,6 +78,14 @@ public struct GameLauncher: Sendable {
         return try wine.start(
             Self.steamArguments(paths: wine.paths, settings: settings, launchGame: launchGame),
             extraEnvironment: Self.environment(for: settings), onOutput: log)
+    }
+
+    /// True when a `steam.exe` process is alive (ours or otherwise). `pgrep` exits 0 on a match.
+    public static func isSteamRunning(runner: ProcessRunning) async -> Bool {
+        let code = try? await runner.run(
+            executable: URL(fileURLWithPath: "/usr/bin/pgrep"), arguments: ["-f", "steam.exe"],
+            environment: [:], currentDirectory: nil, onOutput: { _ in })
+        return code == 0
     }
 
     public func stop() async { await wine.killAll() }

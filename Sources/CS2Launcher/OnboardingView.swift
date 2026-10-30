@@ -19,6 +19,7 @@ struct OnboardingView: View {
                     }
                     .padding(.bottom, 12)
                 }
+                installAllPanel
                 ForEach(SetupStep.allCases) { step in
                     StepRow(step: step)
                     if step != SetupStep.allCases.last { Divider() }
@@ -27,6 +28,41 @@ struct OnboardingView: View {
             .padding(24)
             .frame(maxWidth: 760, alignment: .leading)
             .frame(maxWidth: .infinity)
+        }
+    }
+}
+
+extension OnboardingView {
+    @ViewBuilder var installAllPanel: some View {
+        if state.isInstallingAll || state.setupFailure != nil || state.hasPendingAutomaticSteps {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 12) {
+                    Button {
+                        state.installAll()
+                    } label: {
+                        Label(state.setupFailure != nil ? "Повторить" : "Установить всё",
+                              systemImage: state.setupFailure != nil ? "arrow.clockwise" : "bolt.fill")
+                            .font(.headline)
+                            .frame(minWidth: 160)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(state.isInstallingAll || state.isBusy)
+                    if !state.isInstallingAll && state.setupFailure == nil {
+                        Text("Проверка, Wine, префикс, Steam — автоматически (загрузки ~250 МБ).")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                }
+                if state.isInstallingAll {
+                    Text(state.setupProgressText).font(.headline)
+                    ProgressView(value: state.overallSetupProgress).frame(maxWidth: 420)
+                }
+                if let f = state.setupFailure {
+                    Text("Остановлено на шаге «\(f.stage.title)»: \(f.message)")
+                        .font(.callout).foregroundStyle(.red).textSelection(.enabled)
+                }
+            }
+            .padding(.bottom, 14)
         }
     }
 }
@@ -64,6 +100,9 @@ private struct StepRow: View {
 
     @ViewBuilder private func detail(_ s: StepStatus) -> some View {
         switch s {
+        case .running(let p) where step == .cs2:
+            Text("Скачивается: \(Int(((p ?? 0) * 100).rounded()))%").font(.caption).foregroundStyle(.secondary)
+            ProgressView(value: p ?? 0).frame(maxWidth: 260)
         case .running(let p):
             if let p { ProgressView(value: p).frame(maxWidth: 260) }
             else { Text("Выполняется…").font(.caption).foregroundStyle(.secondary) }
@@ -106,7 +145,7 @@ private struct StepRow: View {
             case .cs2:
                 if !s.isDone {
                     Button("Открыть Steam") { state.openSteam() }
-                        .disabled(state.isGameRunning || !unlocked)
+                        .disabled(state.isSteamRunning || state.isLaunching || !unlocked)
                     Button("Проверить снова") { state.refresh() }
                         .disabled(!unlocked)
                 }

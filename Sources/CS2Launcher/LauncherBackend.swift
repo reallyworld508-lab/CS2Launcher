@@ -13,7 +13,8 @@ protocol LauncherBackend: Sendable {
     func applySettings(_ s: Settings, log: @escaping @Sendable (String) -> Void) async throws
     func isSteamInstalled() -> Bool
     func installSteam(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws
-    func isCS2Installed() -> Bool
+    func cs2InstallState() -> CS2InstallState
+    func isSteamRunning() async -> Bool
     func launch(settings: Settings, launchGame: Bool, log: @escaping @Sendable (String) -> Void) throws -> RunningProcess
     func stopAll() async
 }
@@ -34,7 +35,9 @@ final class FakeRunningProcess: RunningProcess, @unchecked Sendable {
 final class PreviewBackend: LauncherBackend, @unchecked Sendable {
     let paths: Paths
     private let lock = NSLock()
-    private var wine = false, prefix = false, steam = false, cs2 = false
+    private var wine = false, prefix = false, steam = false
+    private var cs2Start: Date?
+    private var steamProc: FakeRunningProcess?
 
     init(paths: Paths = Paths(root: FileManager.default.temporaryDirectory
         .appendingPathComponent("CS2LauncherPreview", isDirectory: true))) {
@@ -77,15 +80,21 @@ final class PreviewBackend: LauncherBackend, @unchecked Sendable {
         for i in 1...10 { await nap(120); progress(Double(i) / 10) }
         set { steam = true }
     }
-    func isCS2Installed() -> Bool { get { cs2 } }
+    func cs2InstallState() -> CS2InstallState {
+        lock.lock(); defer { lock.unlock() }
+        guard let t = cs2Start else { return .notInstalled }
+        let p = Date().timeIntervalSince(t) / 20
+        return p >= 1 ? .installed : .downloading(progress: p)
+    }
+    func isSteamRunning() async -> Bool { get { steamProc?.isRunning ?? false } }
     func launch(settings: Settings, launchGame: Bool, log: @escaping @Sendable (String) -> Void) throws -> RunningProcess {
         log(launchGame ? "[preview] Запуск CS2 \(settings.gameArgs)" : "[preview] Запуск Steam \(settings.steamArgs)")
-        set { cs2 = true }
         let p = FakeRunningProcess()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 8) { p.terminate() }
+        set { if cs2Start == nil { cs2Start = Date() }; steamProc = p }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 60) { p.terminate() }
         return p
     }
-    func stopAll() async { await nap(200) }
+    func stopAll() async { steamProc?.terminate(); await nap(200) }
 }
 
 typealias LauncherSettings = CS2LauncherCore.Settings

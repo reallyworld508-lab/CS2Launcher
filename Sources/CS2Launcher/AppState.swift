@@ -24,6 +24,15 @@ enum SetupStep: String, CaseIterable, Identifiable {
         case .cs2: "Откройте Steam, войдите и установите Counter-Strike 2"
         }
     }
+    var stage: SetupStage {
+        switch self {
+        case .systemCheck: .systemCheck
+        case .wine: .wine
+        case .prefix: .prefix
+        case .steam: .steam
+        case .cs2: .cs2
+        }
+    }
     var icon: String {
         switch self {
         case .systemCheck: "checkmark.shield"
@@ -45,6 +54,34 @@ enum StepStatus: Equatable {
     var isRunning: Bool { if case .running = self { true } else { false } }
 }
 
+extension SetupStage {
+    var title: String {
+        switch self {
+        case .systemCheck: "Проверка системы"
+        case .wine: "Установка Wine"
+        case .prefix: "Подготовка префикса"
+        case .steam: "Установка Steam"
+        case .openSteam: "Запуск Steam"
+        case .cs2: "Counter-Strike 2"
+        }
+    }
+    var step: SetupStep? {
+        switch self {
+        case .systemCheck: .systemCheck
+        case .wine: .wine
+        case .prefix: .prefix
+        case .steam: .steam
+        case .cs2: .cs2
+        case .openSteam: nil
+        }
+    }
+}
+
+struct SetupFailure: Equatable {
+    let stage: SetupStage
+    let message: String
+}
+
 @MainActor @Observable
 final class AppState {
     let backend: LauncherBackend
@@ -54,12 +91,27 @@ final class AppState {
     private(set) var logLines: [String] = []
     private(set) var stepStatus: [SetupStep: StepStatus]
     private(set) var systemCheckResult: SystemCheckResult?
-    private(set) var isGameRunning = false
     private(set) var statusText = ""
 
+    // Run state. `isSteamRunning` (a steam.exe is alive) and `gameLaunched` (we asked Steam to start CS2)
+    // are separate; neither blocks a new launch. `isLaunching` only covers the short spawn phase.
+    private(set) var isSteamRunning = false
+    private(set) var gameLaunched = false
+    private(set) var isLaunching = false
+    private(set) var cs2State: CS2InstallState = .notInstalled
+
+    // One-click setup
+    private(set) var isInstallingAll = false
+    private(set) var setupPlan: [SetupStage] = []
+    private(set) var setupIndex = 0
+    private(set) var setupFailure: SetupFailure?
+
     private var process: RunningProcess?
+    private var setupTask: Task<Void, Never>?
+    private var monitorTask: Task<Void, Never>?
     private var logHandle: FileHandle?
     private static let maxLines = 5000
+    static let pollInterval: Duration = .seconds(5)
 
     var logFileURL: URL { backend.paths.logs.appendingPathComponent("launcher.log") }
 
@@ -77,9 +129,23 @@ final class AppState {
 
     func status(_ step: SetupStep) -> StepStatus { stepStatus[step] ?? .pending }
 
-    var isBusy: Bool { isGameRunning || SetupStep.allCases.contains { status($0).isRunning } }
+    /// Something is in progress (excluding the CS2 download, which Steam does on its own).
+    var isBusy: Bool {
+        isLaunching || isInstallingAll
+            || SetupStep.allCases.contains { $0 != .cs2 && status($0).isRunning }
+    }
 
-    var isSetupComplete: Bool { SetupStep.allCases.allSatisfy { status($0).isDone } }
+    func completedStages() -> Set<SetupStage> {
+        var c = Set(SetupStep.allCases.filter { status($0).isDone }.map(\.stage))
+        if isSteamRunning || c.contains(.cs2) { c.insert(.openSteam) }
+        return c
+    }
+
+    /// Everything needed to play exists. (The system check is advisory, so a later launch skips straight to MainView.)
+    var isSetupComplete: Bool { SetupPlanner.isComplete(completedStages()) }
+
+    /// True when "Установить всё" has something to do.
+    var hasPendingAutomaticSteps: Bool { !SetupPlanner.plan(completed: completedStages()).isEmpty }
 
     /// A step can be started only when all previous steps are done.
     func isUnlocked(_ step: SetupStep) -> Bool {
@@ -90,11 +156,50 @@ final class AppState {
         return true
     }
 
+    var currentSetupStage: SetupStage? {
+        isInstallingAll && setupIndex < setupPlan.count ? setupPlan[setupIndex] : nil
+    }
+
+    /// 0...1 over the whole one-click run.
+    var overallSetupProgress: Double {
+        var stepP: Double?
+        if let st = currentSetupStage?.step, case .running(let p) = status(st) { stepP = p }
+        return SetupPlanner.overallProgress(index: setupIndex, total: setupPlan.count, stepProgress: stepP)
+    }
+
+    var setupProgressText: String {
+        guard let st = currentSetupStage else { return "" }
+        return "Шаг \(setupIndex + 1) из \(setupPlan.count): \(st.title)"
+    }
+
     // MARK: Lifecycle
 
     func start() async {
-        if systemCheckResult == nil { await runSystemCheck() }
+        // On later launches (everything installed) skip the check and go straight to MainView.
+        if !isSetupComplete && systemCheckResult == nil { await runSystemCheck() }
         refresh()
+        await refreshSteamRunning()
+        startMonitoring()
+    }
+
+    /// Polls Steam/CS2 state every few seconds; the CS2 step flips to done by itself.
+    private func startMonitoring() {
+        guard monitorTask == nil else { return }
+        monitorTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: AppState.pollInterval)
+                guard let self, !Task.isCancelled else { return }
+                self.refresh()
+                await self.refreshSteamRunning()
+            }
+        }
+    }
+
+    func refreshSteamRunning() async {
+        var alive = process?.isRunning ?? false
+        if !alive { alive = await backend.isSteamRunning() }
+        if alive != isSteamRunning { isSteamRunning = alive }
+        if !alive && gameLaunched { gameLaunched = false }
     }
 
     /// Re-derives done-ness from the backend. Running/failed steps are left alone unless now satisfied.
@@ -103,7 +208,13 @@ final class AppState {
         derive(.wine, backend.isWineInstalled())
         derive(.prefix, backend.isPrefixReady() && !backend.prefixNeedsUpdate())
         derive(.steam, backend.isSteamInstalled())
-        derive(.cs2, backend.isCS2Installed())
+        let cs2 = backend.cs2InstallState()
+        if cs2 != cs2State { cs2State = cs2 }
+        switch cs2 {
+        case .installed: set(.cs2, .done)
+        case .downloading(let p): set(.cs2, .running(p))
+        case .notInstalled: set(.cs2, .pending)
+        }
     }
 
     private func derive(_ step: SetupStep, _ ok: Bool) {
@@ -126,6 +237,72 @@ final class AppState {
         return p.joined(separator: "; ")
     }
 
+    // MARK: One-click setup
+
+    /// Runs every automatic step that is not done yet. Calling it again after a failure resumes from the failed step.
+    func installAll() {
+        guard !isInstallingAll, !isLaunching,
+              !SetupStep.allCases.contains(where: { $0 != .cs2 && status($0).isRunning }) else { return }
+        isInstallingAll = true
+        setupFailure = nil
+        setupTask = Task { @MainActor in
+            await runInstallAll()
+            isInstallingAll = false
+            setupTask = nil
+        }
+    }
+
+    private func runInstallAll() async {
+        refresh()
+        await refreshSteamRunning()
+        let plan = SetupPlanner.plan(completed: completedStages())
+        setupPlan = plan
+        setupIndex = 0
+        guard !plan.isEmpty else { return }
+        log("▶ Установить всё: \(plan.map(\.rawValue).joined(separator: " → "))")
+        let result = await SetupPlanner.execute(
+            plan: plan,
+            onStart: { [self] i, _ in setupIndex = i },
+            step: { [self] stage in await performStage(stage) })
+        if let failed = result.failed {
+            var msg = setupFailure?.message ?? ""
+            if msg.isEmpty, let st = failed.step, case .failed(let m) = status(st) { msg = m }
+            if msg.isEmpty { msg = "Не удалось выполнить шаг" }
+            setupFailure = SetupFailure(stage: failed, message: msg)
+            statusText = ""
+            log("✘ Установка остановлена на шаге «\(failed.title)»")
+        } else if !result.cancelled {
+            setupIndex = plan.count
+            log("✔ Установить всё: готово")
+        }
+    }
+
+    private func performStage(_ stage: SetupStage) async -> Bool {
+        switch stage {
+        case .systemCheck:
+            await runSystemCheck()
+            return status(.systemCheck).isDone
+        case .wine:
+            return await performWineInstall()
+        case .prefix:
+            return await performPrefixStep()
+        case .steam:
+            return await performSteamInstall()
+        case .openSteam:
+            do {
+                try await performLaunch(game: false)
+                return true
+            } catch {
+                log("✘ Запуск: \(error.localizedDescription)")
+                statusText = "Ошибка: \(error.localizedDescription)"
+                setupFailure = SetupFailure(stage: .openSteam, message: error.localizedDescription)
+                return false
+            }
+        case .cs2:
+            return true
+        }
+    }
+
     // MARK: Step actions
 
     func runSystemCheck() async {
@@ -138,11 +315,15 @@ final class AppState {
 
     static let prefixUpdateText = "Обновление префикса Wine (1–2 мин)…"
 
-    func installWine() {
-        runStep(.wine, "Установка Wine", then: { [weak self] in
-            await self?.autoUpdatePrefixIfNeeded()
-        }) { [backend] progress, log in
+    private func performWineInstall() async -> Bool {
+        await performStep(.wine, "Установка Wine") { [backend] progress, log in
             try await backend.installWine(progress: progress, log: log)
+        }
+    }
+
+    func installWine() {
+        Task {
+            if await performWineInstall() { await autoUpdatePrefixIfNeeded() }
         }
     }
 
@@ -150,14 +331,16 @@ final class AppState {
 
     private func autoUpdatePrefixIfNeeded() async {
         guard prefixNeedsUpdate else { return }
-        await performPrefixUpdate()
+        _ = await performPrefixUpdate()
     }
 
-    private func performPrefixUpdate() async {
-        guard !status(.prefix).isRunning else { return }
+    @discardableResult
+    private func performPrefixUpdate() async -> Bool {
+        guard !status(.prefix).isRunning else { return false }
         set(.prefix, .running(nil))
         statusText = Self.prefixUpdateText
         log("▶ Обновление префикса")
+        var ok = true
         do {
             try await backend.updatePrefix(log: makeLogger())
             log("✔ Обновление префикса: готово")
@@ -165,34 +348,48 @@ final class AppState {
         } catch {
             log("✘ Обновление префикса: \(error.localizedDescription)")
             set(.prefix, .failed(error.localizedDescription))
+            ok = false
         }
         statusText = ""
         refresh()
+        return ok
     }
 
     func updatePrefix() {
         Task { await performPrefixUpdate() }
     }
 
-    func createPrefix() {
+    private func performPrefixCreate() async -> Bool {
         let s = settings
-        runStep(.prefix, "Создание префикса") { [backend] _, log in
+        return await performStep(.prefix, "Создание префикса") { [backend] _, log in
             try await backend.createPrefix(log: log)
             try await backend.applySettings(s, log: log)
         }
     }
 
-    func installSteam() {
-        runStep(.steam, "Установка Steam") { [backend] progress, log in
+    /// Create the prefix, or update it when it already exists but belongs to another Wine release.
+    private func performPrefixStep() async -> Bool {
+        prefixNeedsUpdate ? await performPrefixUpdate() : await performPrefixCreate()
+    }
+
+    func createPrefix() {
+        Task { _ = await performPrefixCreate() }
+    }
+
+    private func performSteamInstall() async -> Bool {
+        await performStep(.steam, "Установка Steam") { [backend] progress, log in
             try await backend.installSteam(progress: progress, log: log)
         }
     }
 
-    private func runStep(_ step: SetupStep, _ name: String,
-                         then after: (@Sendable @MainActor () async -> Void)? = nil,
-                         _ work: @escaping @Sendable (@escaping @Sendable (Double) -> Void,
-                                                      @escaping @Sendable (String) -> Void) async throws -> Void) {
-        guard !status(step).isRunning else { return }
+    func installSteam() {
+        Task { _ = await performSteamInstall() }
+    }
+
+    private func performStep(_ step: SetupStep, _ name: String,
+                             _ work: @escaping @Sendable (@escaping @Sendable (Double) -> Void,
+                                                          @escaping @Sendable (String) -> Void) async throws -> Void) async -> Bool {
+        guard !status(step).isRunning else { return false }
         set(step, .running(nil))
         log("▶ \(name)")
         let progress: @Sendable (Double) -> Void = { [weak self] p in
@@ -201,18 +398,16 @@ final class AppState {
                 self.set(step, .running(p))
             }
         }
-        let logger = makeLogger()
-        Task {
-            do {
-                try await work(progress, logger)
-                log("✔ \(name): готово")
-                set(step, .done)
-                refresh()
-                await after?()
-            } catch {
-                log("✘ \(name): \(error.localizedDescription)")
-                set(step, .failed(error.localizedDescription))
-            }
+        do {
+            try await work(progress, makeLogger())
+            log("✔ \(name): готово")
+            set(step, .done)
+            refresh()
+            return true
+        } catch {
+            log("✘ \(name): \(error.localizedDescription)")
+            set(step, .failed(error.localizedDescription))
+            return false
         }
     }
 
@@ -222,44 +417,61 @@ final class AppState {
     func play() { launch(game: true) }
 
     private func launch(game: Bool) {
-        guard !isGameRunning else { return }
-        isGameRunning = true
-        let s = settings
-        let logger = makeLogger()
+        guard !isLaunching, !isInstallingAll else { return }
+        isLaunching = true
         Task {
-            do {
-                if prefixNeedsUpdate {
-                    set(.prefix, .running(nil))
-                    statusText = Self.prefixUpdateText
-                    log("▶ Обновление префикса")
-                    do { try await backend.updatePrefix(log: logger) }
-                    catch { set(.prefix, .failed(error.localizedDescription)); throw error }
-                    set(.prefix, .done)
-                }
-                statusText = game ? "Запуск игры…" : "Запуск Steam…"
-                try await backend.applySettings(s, log: logger)
-                let p = try backend.launch(settings: s, launchGame: game, log: logger)
-                process = p
-                statusText = game ? "Игра запускается, окно появится через 20–60 с"
-                                  : "Steam запускается, окно появится через 20–60 с"
-                let code = await p.waitUntilExit()
-                log("Процесс завершён, код \(code)")
-                statusText = code == 0 ? "Готово к игре" : "Процесс завершился с кодом \(code)"
-            } catch {
+            do { try await performLaunch(game: game) }
+            catch {
                 log("✘ Запуск: \(error.localizedDescription)")
                 statusText = "Ошибка: \(error.localizedDescription)"
             }
-            process = nil
-            isGameRunning = false
+            isLaunching = false
             refresh()
         }
     }
 
+    /// Starts Steam (optionally with `-applaunch 730`). If Steam is already running, the new steam.exe
+    /// forwards the command to the running instance and exits, so a running Steam never blocks this.
+    private func performLaunch(game: Bool) async throws {
+        let s = settings
+        let logger = makeLogger()
+        await refreshSteamRunning()
+        if prefixNeedsUpdate && !isSteamRunning {
+            set(.prefix, .running(nil))
+            statusText = Self.prefixUpdateText
+            log("▶ Обновление префикса")
+            do { try await backend.updatePrefix(log: logger) }
+            catch { set(.prefix, .failed(error.localizedDescription)); throw error }
+            set(.prefix, .done)
+        }
+        statusText = game ? "Запуск игры…" : "Запуск Steam…"
+        try await backend.applySettings(s, log: logger)
+        let p = try backend.launch(settings: s, launchGame: game, log: logger)
+        if process?.isRunning != true { process = p }
+        isSteamRunning = true
+        if game { gameLaunched = true }
+        statusText = game ? "Игра запускается, окно появится через 20–60 с"
+                          : "Steam запускается, окно появится через 20–60 с"
+        Task { @MainActor [weak self] in
+            let code = await p.waitUntilExit()
+            guard let self else { return }
+            self.log("Процесс завершён, код \(code)")
+            if self.process === p { self.process = nil }
+            self.statusText = code == 0 ? "" : "Процесс завершился с кодом \(code)"
+            await self.refreshSteamRunning()
+        }
+    }
+
+    /// Kills everything in the prefix (`wineserver -k`).
     func stop() {
         statusText = "Остановка…"
         process?.terminate()
         Task {
             await backend.stopAll()
+            process = nil
+            isSteamRunning = false
+            gameLaunched = false
+            statusText = ""
             log("Всё остановлено")
         }
     }

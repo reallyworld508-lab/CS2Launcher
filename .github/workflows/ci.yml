@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Make app bundle
+        run: scripts/make-app.sh
+      - name: Zip app
+        run: ditto -c -k --keepParent "build/CS2 Launcher.app" build/CS2-Launcher-ci.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CS2-Launcher-macOS
+          path: build/CS2-Launcher-ci.zip

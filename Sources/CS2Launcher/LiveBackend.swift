@@ -56,7 +56,9 @@ struct LiveBackend: LauncherBackend {
         try await steam.install(progress: progress, log: log)
     }
 
-    func isCS2Installed() -> Bool { game.isCS2Installed }
+    func cs2InstallState() -> CS2InstallState { SteamLibrary(paths: paths).cs2State() }
+
+    func isSteamRunning() async -> Bool { await GameLauncher.isSteamRunning(runner: runner) }
 
     func launch(settings: Settings, launchGame: Bool,
                 log: @escaping @Sendable (String) -> Void) throws -> RunningProcess {

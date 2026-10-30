@@ -55,7 +55,7 @@ public struct SystemCheck: Sendable {
         let arm = Self.sysctlArm64()
         #endif
         return SystemCheckResult(
-            rosettaInstalled: rosetta, macOSVersion: version, macOSSupported: v.majorVersion >= 14,
+            rosettaInstalled: rosetta, macOSVersion: version, macOSSupported: v.majorVersion >= 15,
             freeDiskBytes: free, enoughDisk: free >= Self.requiredFreeBytes, isAppleSilicon: arm)
     }
 
