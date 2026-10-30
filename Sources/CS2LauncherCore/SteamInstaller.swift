@@ -19,29 +19,32 @@ public struct SteamInstaller: Sendable {
 
     let wine: WineRunner
     let downloader: Downloading
+    let downloads: URL
     var pollInterval: Duration = .seconds(2)
-    var pollTimeout: Duration = .seconds(120)
+    var pollTimeout: Duration = .seconds(360)   // the first run of a new bottle registers DLLs for minutes
 
-    public init(wine: WineRunner, downloader: Downloading) {
+    public init(wine: WineRunner, downloader: Downloading, downloads: URL) {
         self.wine = wine
         self.downloader = downloader
+        self.downloads = downloads
     }
 
-    init(wine: WineRunner, downloader: Downloading, pollInterval: Duration, pollTimeout: Duration) {
+    init(wine: WineRunner, downloader: Downloading, downloads: URL, pollInterval: Duration, pollTimeout: Duration) {
         self.wine = wine
         self.downloader = downloader
+        self.downloads = downloads
         self.pollInterval = pollInterval
         self.pollTimeout = pollTimeout
     }
 
     public var isInstalled: Bool {
-        FileManager.default.fileExists(atPath: wine.paths.steamExe.path)
+        FileManager.default.fileExists(atPath: wine.bottle.steamExe.path)
     }
 
     public func install(progress: @escaping @Sendable (Double) -> Void,
                         log: @escaping @Sendable (String) -> Void) async throws {
-        let installer = wine.paths.downloads.appendingPathComponent("SteamSetup.exe")
-        try FileManager.default.createDirectory(at: wine.paths.downloads, withIntermediateDirectories: true)
+        let installer = downloads.appendingPathComponent("SteamSetup.exe")
+        try FileManager.default.createDirectory(at: downloads, withIntermediateDirectories: true)
         progress(0)
         log("Downloading the Steam installer...")
         try await downloader.download(from: Self.installerURL, to: installer) { p in
@@ -64,13 +67,6 @@ public struct SteamInstaller: Sendable {
                 throw LauncherError.steamExeMissingAfterInstall
             }
             try await Task.sleep(for: pollInterval)
-        }
-        do {
-            let patch = SteamWebHelperPatch(paths: wine.paths, wrapperData: try SteamWebHelperPatch.bundledWrapper())
-            let dirs = try patch.apply()
-            if !dirs.isEmpty { log("Patched steamwebhelper in \(dirs.map(\.lastPathComponent).joined(separator: ", "))") }
-        } catch {
-            log("Could not patch steamwebhelper: \(error.localizedDescription)")
         }
         log("Steam is installed.")
         progress(1.0)

@@ -4,13 +4,12 @@ import CS2LauncherCore
 protocol LauncherBackend: Sendable {
     var paths: Paths { get }
     func systemCheck() async -> SystemCheckResult
-    func isWineInstalled() -> Bool
-    func installWine(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws
-    func isPrefixReady() -> Bool
-    func createPrefix(log: @escaping @Sendable (String) -> Void) async throws
-    func prefixNeedsUpdate() -> Bool
-    func updatePrefix(log: @escaping @Sendable (String) -> Void) async throws
-    func applySettings(_ s: Settings, log: @escaping @Sendable (String) -> Void) async throws
+    func isCrossOverInstalled() -> Bool
+    func crossOverVersion() -> String?
+    func isBottleReady() -> Bool
+    func createBottle(log: @escaping @Sendable (String) -> Void) async throws
+    func isLegacyMigrationAvailable() -> Bool
+    func migrateLegacy(log: @escaping @Sendable (String) -> Void) async throws
     func isSteamInstalled() -> Bool
     func installSteam(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws
     func cs2InstallState() -> CS2InstallState
@@ -35,7 +34,7 @@ final class FakeRunningProcess: RunningProcess, @unchecked Sendable {
 final class PreviewBackend: LauncherBackend, @unchecked Sendable {
     let paths: Paths
     private let lock = NSLock()
-    private var wine = false, prefix = false, steam = false
+    private var crossOver = true, bottle = false, steam = false
     private var cs2Start: Date?
     private var steamProc: FakeRunningProcess?
 
@@ -53,26 +52,18 @@ final class PreviewBackend: LauncherBackend, @unchecked Sendable {
         return SystemCheckResult(rosettaInstalled: true, macOSVersion: "26.0.0", macOSSupported: true,
                                  freeDiskBytes: 200 * 1024 * 1024 * 1024, enoughDisk: true, isAppleSilicon: true)
     }
-    func isWineInstalled() -> Bool { get { wine } }
-    func installWine(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws {
-        log("[preview] Загрузка Wine…")
-        for i in 1...10 { await nap(150); progress(Double(i) / 10) }
-        log("[preview] Wine установлен")
-        set { wine = true }
-    }
-    func isPrefixReady() -> Bool { get { prefix } }
-    func createPrefix(log: @escaping @Sendable (String) -> Void) async throws {
-        log("[preview] wineboot --init")
+    func isCrossOverInstalled() -> Bool { get { crossOver } }
+    func crossOverVersion() -> String? { get { crossOver } ? "26.3.0" : nil }
+    func isBottleReady() -> Bool { get { bottle } }
+    func createBottle(log: @escaping @Sendable (String) -> Void) async throws {
+        log("[preview] cxbottle --create")
         await nap(1000)
-        set { prefix = true }
+        set { bottle = true }
     }
-    func prefixNeedsUpdate() -> Bool { false }
-    func updatePrefix(log: @escaping @Sendable (String) -> Void) async throws {
-        log("[preview] wineboot -u")
-        await nap(1000)
-    }
-    func applySettings(_ s: Settings, log: @escaping @Sendable (String) -> Void) async throws {
-        log("[preview] Настройки применены")
+    func isLegacyMigrationAvailable() -> Bool { false }
+    func migrateLegacy(log: @escaping @Sendable (String) -> Void) async throws {
+        log("[preview] перенос")
+        await nap(500)
     }
     func isSteamInstalled() -> Bool { get { steam } }
     func installSteam(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws {

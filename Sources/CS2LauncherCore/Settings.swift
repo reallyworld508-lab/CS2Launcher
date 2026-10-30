@@ -4,27 +4,21 @@ public struct Settings: Codable, Equatable, Sendable {
     public var gameArgs: String = "-novid"
     public var steamArgs: String = ""
     public var metalHUD: Bool = false
-    public var retinaMode: Bool = false
-    public var msync: Bool = true
-    public var advertiseAVX: Bool = true
     public var fpsCap: Int? = nil
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case gameArgs, steamArgs, metalHUD, retinaMode, msync, advertiseAVX, fpsCap
+        case gameArgs, steamArgs, metalHUD, fpsCap
     }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        let d = Settings()
+        let d = Settings()   // keys from older versions (retinaMode, msync, advertiseAVX) are ignored
         gameArgs = (try? c.decodeIfPresent(String.self, forKey: .gameArgs)) ?? d.gameArgs
         steamArgs = (try? c.decodeIfPresent(String.self, forKey: .steamArgs)) ?? d.steamArgs
         if steamArgs == "-cef-disable-gpu-compositing" { steamArgs = "" }  // obsolete old default
         metalHUD = (try? c.decodeIfPresent(Bool.self, forKey: .metalHUD)) ?? d.metalHUD
-        retinaMode = (try? c.decodeIfPresent(Bool.self, forKey: .retinaMode)) ?? d.retinaMode
-        msync = (try? c.decodeIfPresent(Bool.self, forKey: .msync)) ?? d.msync
-        advertiseAVX = (try? c.decodeIfPresent(Bool.self, forKey: .advertiseAVX)) ?? d.advertiseAVX
         fpsCap = (try? c.decodeIfPresent(Int.self, forKey: .fpsCap)) ?? d.fpsCap
     }
 

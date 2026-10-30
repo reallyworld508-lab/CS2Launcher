@@ -56,7 +56,7 @@ struct MainView: View {
     private var summary: some View {
         let s = state.settings
         let items: [(String, Bool)] = [
-            ("Metal HUD", s.metalHUD), ("Retina", s.retinaMode), ("MSync", s.msync), ("AVX", s.advertiseAVX),
+            ("Metal HUD", s.metalHUD),
         ]
         return HStack(spacing: 14) {
             ForEach(items, id: \.0) { item in

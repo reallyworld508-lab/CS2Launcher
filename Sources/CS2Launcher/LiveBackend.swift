@@ -6,47 +6,44 @@ struct LiveBackend: LauncherBackend {
     let paths: Paths
     private let runner: ProcessRunning
     private let downloader: Downloading
+    private let locator: CrossOverLocator
 
     init(paths: Paths = .default,
          runner: ProcessRunning = SystemProcessRunner(),
-         downloader: Downloading = URLSessionDownloader()) {
+         downloader: Downloading = URLSessionDownloader(),
+         locator: CrossOverLocator = CrossOverLocator()) {
         self.paths = paths
         self.runner = runner
         self.downloader = downloader
+        self.locator = locator
     }
 
-    private var wine: WineRunner { WineRunner(paths: paths, runner: runner) }
-    private var runtime: RuntimeManager { RuntimeManager(paths: paths, downloader: downloader, runner: runner) }
-    private var prefix: PrefixManager { PrefixManager(wine: wine) }
-    private var steam: SteamInstaller { SteamInstaller(wine: wine, downloader: downloader) }
+    private var bottle: Bottle { Bottle(locator: locator, runner: runner) }
+    private var wine: WineRunner { WineRunner(locator: locator, bottle: bottle, runner: runner) }
+    private var steam: SteamInstaller { SteamInstaller(wine: wine, downloader: downloader, downloads: paths.downloads) }
     private var game: GameLauncher { GameLauncher(wine: wine) }
+    private var migration: LegacyMigration { LegacyMigration(paths: paths, bottle: bottle) }
 
     func systemCheck() async -> SystemCheckResult {
         await SystemCheck(runner: runner).perform()
     }
 
-    func isWineInstalled() -> Bool { runtime.isWineInstalled }
+    func isCrossOverInstalled() -> Bool { locator.isInstalled }
+    func crossOverVersion() -> String? { locator.version }
 
-    func installWine(progress: @escaping @Sendable (Double) -> Void,
-                     log: @escaping @Sendable (String) -> Void) async throws {
-        try paths.ensureDirectories()
-        try await runtime.installWine(progress: progress, log: log)
+    func isBottleReady() -> Bool { bottle.exists && bottle.hasD3DMetal }
+
+    func createBottle(log: @escaping @Sendable (String) -> Void) async throws {
+        let b = bottle
+        if !b.exists { try await b.create(log: log) }
+        try b.ensureD3DMetal()
+        log("D3DMetal включён в бутылке «\(b.name)».")
     }
 
-    func isPrefixReady() -> Bool { prefix.isInitialized }
+    func isLegacyMigrationAvailable() -> Bool { migration.isAvailable }
 
-    func createPrefix(log: @escaping @Sendable (String) -> Void) async throws {
-        try await prefix.initialize(log: log)
-    }
-
-    func prefixNeedsUpdate() -> Bool { prefix.needsUpdate }
-
-    func updatePrefix(log: @escaping @Sendable (String) -> Void) async throws {
-        try await prefix.update(log: log)
-    }
-
-    func applySettings(_ s: Settings, log: @escaping @Sendable (String) -> Void) async throws {
-        try await prefix.apply(s, log: log)
+    func migrateLegacy(log: @escaping @Sendable (String) -> Void) async throws {
+        try await migration.migrate(runner: runner, log: log)
     }
 
     func isSteamInstalled() -> Bool { steam.isInstalled }
@@ -56,7 +53,7 @@ struct LiveBackend: LauncherBackend {
         try await steam.install(progress: progress, log: log)
     }
 
-    func cs2InstallState() -> CS2InstallState { SteamLibrary(paths: paths).cs2State() }
+    func cs2InstallState() -> CS2InstallState { SteamLibrary(bottle: bottle).cs2State() }
 
     func isSteamRunning() async -> Bool { await GameLauncher.isSteamRunning(runner: runner) }
 

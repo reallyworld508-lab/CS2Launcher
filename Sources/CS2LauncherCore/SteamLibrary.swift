@@ -156,13 +156,11 @@ public struct CS2Manifest: Equatable, Sendable {
 
 public struct SteamLibrary: Sendable {
     public static let cs2AppID = 730
-    public let paths: Paths
+    public let bottle: Bottle
 
-    public init(paths: Paths) { self.paths = paths }
+    public init(bottle: Bottle) { self.bottle = bottle }
 
-    public var steamapps: URL {
-        paths.prefix.appendingPathComponent("drive_c/Program Files (x86)/Steam/steamapps", isDirectory: true)
-    }
+    public var steamapps: URL { bottle.steamapps }
     public var manifestURL: URL { steamapps.appendingPathComponent("appmanifest_\(Self.cs2AppID).acf") }
     public var cs2Executable: URL {
         steamapps.appendingPathComponent("common/Counter-Strike Global Offensive/game/bin/win64/cs2.exe")

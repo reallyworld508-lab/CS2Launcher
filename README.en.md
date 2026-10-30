@@ -2,20 +2,21 @@
 
 **English** | [Русский](README.md)
 
-CS2 Launcher is a macOS (SwiftUI) app that lets Apple Silicon Macs run the Windows version of Counter-Strike 2. It downloads a pinned Wine build (Gcenx `wine-devel 11.20` with MoltenVK, sha256-verified; not bundled, fetched during setup), creates a Wine prefix, silently installs the Windows Steam client, patches `steamwebhelper.exe` (so Steam windows are not black) and launches CS2 via `steam.exe -applaunch 730` with `-vulkan`.
+CS2 Launcher is a macOS (SwiftUI) app that helps Apple Silicon Macs run the Windows version of Counter-Strike 2. It runs on top of [CrossOver](https://www.codeweavers.com/crossover): it creates a CrossOver bottle, enables D3DMetal in it, silently installs the Windows Steam client and launches CS2 via `steam.exe -applaunch 730` (DirectX 11 through D3DMetal).
 
 > The app's UI is currently Russian only.
 
-> **Status:** installing Wine, the prefix and Steam, signing in to Steam and downloading CS2 are verified on an M2 / macOS 26. CS2 starts with `-vulkan` and reaches the main menu inside the engine, but the picture freezes on the splash screen: MoltenVK lacks a feature CS2's Vulkan renderer needs (`Metal does not allow uncompressed views of compressed images`). A different graphics backend is being investigated.
+> **Status:** Steam and CS2 (up to the main menu) are verified on an M2 / macOS 26 with CrossOver 26.3.
 
 ## Requirements
 
 - Apple Silicon Mac
-- macOS 15 or later
+- macOS 15 or newer
 - Rosetta 2 (`softwareupdate --install-rosetta`)
-- Free disk space: CS2 itself is about 69 GB, ~80 GB recommended (the built-in check only requires 45 GB at setup time, which is not enough for the game)
+- [CrossOver](https://www.codeweavers.com/crossover) by CodeWeavers: free for 14 days, then a license is required. You install it yourself into Applications; the launcher neither bundles nor downloads it
+- Free disk space: CS2 itself takes about 69 GB, ~80 GB recommended (the built-in check only requires 45 GB at setup time, which is not enough to install the game)
 
-## Install
+## Installation
 
 1. Download the zip from Releases and unzip it.
 2. Move `CS2 Launcher.app` to Applications.
@@ -27,10 +28,16 @@ CS2 Launcher is a macOS (SwiftUI) app that lets Apple Silicon Macs run the Windo
 
 ## Usage
 
-1. On the "Настройка" (Setup) screen press **"Установить всё"** (Install everything). The launcher runs the system check, installs Wine, creates (or updates) the prefix, installs Steam and then opens Steam, skipping steps that are already done. It shows "Шаг N из M" (step N of M). Nothing is downloaded before that click (~250 MB in total). On failure the button becomes "Повторить" (Retry) and resumes from the failed step. Individual steps can also be run by hand.
-2. In Steam, sign in yourself and install Counter-Strike 2. The launcher never asks for or stores your credentials.
-3. The launcher watches the download itself (`appmanifest_730.acf`): the CS2 step shows "Скачивается: NN%", is marked done automatically when finished, and the app switches to the main screen.
-4. Press "Играть" (Play). It works whether Steam is already open or not (it passes `-applaunch 730`). The window appears after 20-60 seconds. "Стоп" (Stop) kills all Wine processes.
+1. Install CrossOver. If it is missing, the **"Скачать CrossOver"** (Download CrossOver) button on the CrossOver step opens the CodeWeavers site; after installing, press "Проверить снова" (Check again).
+2. On the "Настройка" (Setup) screen press **"Установить всё"** (Install everything). The launcher runs the system check, checks for CrossOver, creates the `CS2` bottle with D3DMetal enabled and installs Steam, then opens Steam, skipping steps that are already done. If CrossOver is not found, setup stops with a clear message. On failure the button becomes "Повторить" (Retry) and resumes from the failed step.
+3. The first run of a new bottle spends about 3 minutes registering DLLs before the Steam window appears. This is expected.
+4. In Steam, sign in yourself and install Counter-Strike 2. The launcher never asks for or stores your credentials.
+5. The launcher watches the download itself (`appmanifest_730.acf`): the CS2 step shows "Скачивается: NN%", is marked done automatically when finished, and the app switches to the main screen.
+6. Press "Играть" (Play). It works whether Steam is already open or not (it passes `-applaunch 730`). "Стоп" (Stop) kills all processes of the bottle.
+
+### Migrating from an old install
+
+Earlier launcher versions used a standalone Wine and a prefix in `~/Library/Application Support/CS2Launcher/Prefix`. If it exists and the bottle has no Steam yet, the Steam step shows a **"Перенести Steam и CS2 из старой установки"** (Move Steam and CS2 from the old install) button. It clones the Steam folder into the bottle (`cp -Rc`, an APFS clone: instant, no extra disk space) and restores the original `steamwebhelper.exe`. The old folder is left untouched. The migration never runs automatically.
 
 ## Settings
 
@@ -38,59 +45,54 @@ App settings window (⌘,):
 
 | Option | Effect |
 |---|---|
-| Game arguments | Passed to CS2 (default `-novid`). `-vulkan` is added automatically; use `-dx11` to override |
+| Game arguments | Passed to CS2 after `-applaunch 730` (default `-novid`) |
 | Steam arguments | Extra `steam.exe` arguments |
 | FPS cap | Adds `+fps_max N`; empty means unlimited |
 | Metal HUD | `MTL_HUD_ENABLED=1`, shows FPS and GPU load |
-| Retina mode | Wine Mac driver `RetinaMode`: native-resolution rendering, heavier |
-| MSync | `WINEMSYNC=1`, `WINEESYNC=1` (on by default) |
-| Advertise AVX | `ROSETTA_ADVERTISE_AVX=1` (on by default), needed to run under Rosetta 2 |
+
+`CX_GRAPHICS_BACKEND=d3dmetal` and `WINEMSYNC=1` are written to the bottle's `cxbottle.conf` during setup.
 
 ## How it works
 
 ```mermaid
 flowchart LR
-    A[System check] --> B[Download Wine 11.20<br/>sha256]
-    B --> C[Create prefix<br/>wineboot]
-    C --> D[Install Steam<br/>SteamSetup.exe /S]
-    D --> E[Patch steamwebhelper.exe<br/>wrapper]
-    E --> F[steam.exe -applaunch 730 -vulkan]
-    F --> G[CS2 via Wine + MoltenVK]
+    A[System check] --> B[CrossOver found]
+    B --> C[Bottle CS2<br/>cxbottle --create]
+    C --> D[D3DMetal in cxbottle.conf]
+    D --> E[Install Steam<br/>SteamSetup.exe /S]
+    E --> F[steam.exe -applaunch 730]
+    F --> G[CS2: DirectX 11 via D3DMetal]
 ```
 
-Data lives in `~/Library/Application Support/CS2Launcher` (`Runtime`, `Prefix`, `Logs`, `Downloads`, `settings.json`).
-
-The patch: `steamwebhelper.exe` is renamed to `steamwebhelper_real.exe` and replaced with a tiny wrapper ([wrapper/steamwebhelper-wrapper.c](wrapper/steamwebhelper-wrapper.c)) that starts the original with `--disable-gpu --single-process`. Steam is started with `-noverifyfiles -norepairfiles -nobootstrapupdate -skipinitialbootstrap` so it does not restore the original file. These flags are always added.
+The bottle lives in `~/Library/Application Support/CrossOver/Bottles/CS2` and is visible in CrossOver itself. Launcher data is in `~/Library/Application Support/CS2Launcher` (`Logs`, `Downloads`, `settings.json`). The original `steamwebhelper.exe` is left alone and Steam is started without any special flags.
 
 ## Troubleshooting
 
-- **Black Steam window.** Stop the processes ("Стоп") and start Steam or the game from the launcher again: the wrapper is re-applied on every launch if it was replaced.
-- **Updating Steam.** Because of the flags, the Steam client does not update itself, and the flags cannot be turned off in settings. There is no reinstall button. The Steam step counts as done while `steam.exe` exists in the prefix; if you delete `drive_c/Program Files (x86)/Steam` inside `Prefix` (this also deletes the installed CS2), the step becomes available again and installs a fresh client.
+- **No Steam window on first run.** Wait about 3 minutes: CrossOver is registering DLLs in the new bottle.
+- **CrossOver not found.** The launcher looks in `/Applications/CrossOver.app` and `~/Applications/CrossOver.app`.
 - **Logs.** The log is shown in the app ("Журнал") and also written to a file in `Logs`.
-- **Game does not start.** Try `-dx11` in game arguments, or disable "Advertise AVX" or MSync.
+- **Game does not start.** Press "Стоп" and start again; check in the log that the `CS2` bottle exists and D3DMetal is enabled.
 
 ## Known limitations
 
 - VAC and matchmaking under Wine are not guaranteed. Use at your own risk.
 - Performance depends on your M-series chip.
-- The CS2 renderer under MoltenVK is experimental.
+- CrossOver requires a license after the trial ends.
 
 ## Building from source
 
 ```sh
 swift build
-swift test
+swift test                   # CrossOver is not needed for tests
 scripts/make-app.sh          # build/CS2 Launcher.app
 scripts/package-release.sh   # zip + sha256 in build/
-scripts/build-wrapper.sh     # rebuild the wrapper, needs llvm-mingw (LLVM_MINGW env var)
 ```
 
 ## Credits
 
-- [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds) - Wine builds for macOS
-- [MoltenVK](https://github.com/KhronosGroup/MoltenVK) - Vulkan on top of Metal
-- The steamwebhelper wrapper idea comes from [notpop/steam-on-m1-wine](https://github.com/notpop/steam-on-m1-wine)
+- [CodeWeavers CrossOver](https://www.codeweavers.com/crossover) - Windows compatibility layer
+- Apple D3DMetal (Game Porting Toolkit) - DirectX on top of Metal
 
 ## Disclaimer
 
-Not affiliated with Valve or Apple. Counter-Strike and Steam are trademarks of Valve Corporation. License: [MIT](LICENSE).
+Not affiliated with Valve, Apple or CodeWeavers. Counter-Strike and Steam are trademarks of Valve Corporation. CrossOver is a trademark of CodeWeavers. License: [MIT](LICENSE).

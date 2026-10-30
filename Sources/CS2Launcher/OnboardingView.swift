@@ -49,7 +49,7 @@ extension OnboardingView {
                     .controlSize(.large)
                     .disabled(state.isInstallingAll || state.isBusy)
                     if !state.isInstallingAll && state.setupFailure == nil {
-                        Text("Проверка, Wine, префикс, Steam — автоматически (загрузки ~250 МБ).")
+                        Text("Проверка, CrossOver, бутылка, Steam — автоматически (загрузка Steam ~2 МБ). Первый запуск Steam занимает около 3 минут.")
                             .font(.callout).foregroundStyle(.secondary)
                     }
                 }
@@ -109,7 +109,11 @@ private struct StepRow: View {
         case .failed(let m):
             Text(m).font(.caption).foregroundStyle(.red).textSelection(.enabled)
         case .done:
-            Text("Готово").font(.caption).foregroundStyle(.green)
+            if step == .crossOver, let v = state.crossOverVersion {
+                Text("Найден CrossOver \(v)").font(.caption).foregroundStyle(.green)
+            } else {
+                Text("Готово").font(.caption).foregroundStyle(.green)
+            }
         case .pending:
             EmptyView()
         }
@@ -122,23 +126,23 @@ private struct StepRow: View {
             case .systemCheck:
                 Button("Проверить") { Task { await state.runSystemCheck() } }
                     .disabled(busy)
-            case .wine:
+            case .crossOver:
                 if !s.isDone {
-                    Button(failed(s) ? "Повторить" : "Установить") { state.installWine() }
-                        .disabled(busy || !unlocked)
+                    Button("Скачать CrossOver") { state.downloadCrossOver() }
+                        .buttonStyle(.borderedProminent)
+                    Button("Проверить снова") { state.recheckCrossOver() }
                 }
-            case .prefix:
+            case .bottle:
                 if !s.isDone {
-                    if state.prefixNeedsUpdate {
-                        Button(failed(s) ? "Повторить" : "Обновить") { state.updatePrefix() }
-                            .disabled(busy || !unlocked)
-                    } else {
-                        Button(failed(s) ? "Повторить" : "Создать") { state.createPrefix() }
-                            .disabled(busy || !unlocked)
-                    }
+                    Button(failed(s) ? "Повторить" : "Создать") { state.createBottle() }
+                        .disabled(busy || !unlocked)
                 }
             case .steam:
                 if !s.isDone {
+                    if state.legacyMigrationAvailable {
+                        Button("Перенести Steam и CS2 из старой установки") { state.migrateLegacy() }
+                            .disabled(busy || !unlocked || state.isBusy)
+                    }
                     Button(failed(s) ? "Повторить" : "Установить") { state.installSteam() }
                         .disabled(busy || !unlocked)
                 }

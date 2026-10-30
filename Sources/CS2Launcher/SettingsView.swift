@@ -9,26 +9,20 @@ struct SettingsView: View {
         Form {
             Section("Параметры запуска") {
                 TextField("Аргументы игры", text: $state.settings.gameArgs)
-                note("Флаг -vulkan добавляется автоматически; чтобы использовать DirectX 11, укажите -dx11.")
+                note("Игра запускается через CrossOver с D3DMetal и DirectX 11, дополнительные флаги не нужны.")
                 TextField("Аргументы Steam", text: $state.settings.steamArgs)
                 TextField("Ограничение FPS", value: $state.settings.fpsCap, format: .number,
                           prompt: Text("Без ограничения"))
                 Text("Пустое поле — без ограничения. Добавляется как +fps_max.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Графика и совместимость") {
+            Section("Графика") {
                 Toggle("Metal HUD", isOn: $state.settings.metalHUD)
                 note("Показывает FPS и нагрузку GPU поверх игры.")
-                Toggle("Retina-режим", isOn: $state.settings.retinaMode)
-                note("Рендер в полном разрешении экрана. Красивее, но заметно тяжелее.")
-                Toggle("MSync", isOn: $state.settings.msync)
-                note("Быстрая синхронизация Wine на macOS. Обычно стоит оставить включённой.")
-                Toggle("Сообщать поддержку AVX", isOn: $state.settings.advertiseAVX)
-                note("Нужно, чтобы игра запускалась под Rosetta 2. Отключайте только при проблемах.")
             }
         }
         .formStyle(.grouped)
-        .frame(width: 520, height: 460)
+        .frame(width: 520, height: 360)
     }
 
     private func note(_ s: String) -> some View {

@@ -3,14 +3,14 @@ import Observation
 import CS2LauncherCore
 
 enum SetupStep: String, CaseIterable, Identifiable {
-    case systemCheck, wine, prefix, steam, cs2
+    case systemCheck, crossOver, bottle, steam, cs2
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .systemCheck: "Проверка системы"
-        case .wine: "Wine"
-        case .prefix: "Префикс Wine"
+        case .crossOver: "CrossOver"
+        case .bottle: "Бутылка"
         case .steam: "Steam"
         case .cs2: "Counter-Strike 2"
         }
@@ -18,17 +18,17 @@ enum SetupStep: String, CaseIterable, Identifiable {
     var explanation: String {
         switch self {
         case .systemCheck: "Apple Silicon, Rosetta, версия macOS и свободное место (от 45 ГБ)."
-        case .wine: "Загрузка Wine со встроенным Vulkan (MoltenVK) — в нём работает Windows-версия игры."
-        case .prefix: "Создание изолированного Windows-окружения для Steam и игры."
-        case .steam: "Загрузка и установка Windows-клиента Steam в префикс."
+        case .crossOver: "Лаунчер работает поверх CrossOver (D3DMetal + DirectX 11). 14 дней бесплатно, затем нужна лицензия CodeWeavers."
+        case .bottle: "Создание бутылки CrossOver «CS2» и включение D3DMetal."
+        case .steam: "Загрузка и установка Windows-клиента Steam в бутылку. Первый запуск может занять несколько минут."
         case .cs2: "Откройте Steam, войдите и установите Counter-Strike 2"
         }
     }
     var stage: SetupStage {
         switch self {
         case .systemCheck: .systemCheck
-        case .wine: .wine
-        case .prefix: .prefix
+        case .crossOver: .crossOver
+        case .bottle: .bottle
         case .steam: .steam
         case .cs2: .cs2
         }
@@ -36,8 +36,8 @@ enum SetupStep: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .systemCheck: "checkmark.shield"
-        case .wine: "wineglass"
-        case .prefix: "shippingbox"
+        case .crossOver: "wineglass"
+        case .bottle: "shippingbox"
         case .steam: "gamecontroller"
         case .cs2: "scope"
         }
@@ -58,8 +58,8 @@ extension SetupStage {
     var title: String {
         switch self {
         case .systemCheck: "Проверка системы"
-        case .wine: "Установка Wine"
-        case .prefix: "Подготовка префикса"
+        case .crossOver: "CrossOver"
+        case .bottle: "Подготовка бутылки"
         case .steam: "Установка Steam"
         case .openSteam: "Запуск Steam"
         case .cs2: "Counter-Strike 2"
@@ -68,8 +68,8 @@ extension SetupStage {
     var step: SetupStep? {
         switch self {
         case .systemCheck: .systemCheck
-        case .wine: .wine
-        case .prefix: .prefix
+        case .crossOver: .crossOver
+        case .bottle: .bottle
         case .steam: .steam
         case .cs2: .cs2
         case .openSteam: nil
@@ -99,6 +99,9 @@ final class AppState {
     private(set) var gameLaunched = false
     private(set) var isLaunching = false
     private(set) var cs2State: CS2InstallState = .notInstalled
+    private(set) var crossOverVersion: String?
+    private(set) var legacyMigrationAvailable = false
+    static let crossOverDownloadURL = URL(string: "https://www.codeweavers.com/crossover")!
 
     // One-click setup
     private(set) var isInstallingAll = false
@@ -205,9 +208,13 @@ final class AppState {
     /// Re-derives done-ness from the backend. Running/failed steps are left alone unless now satisfied.
     func refresh() {
         if let r = systemCheckResult { set(.systemCheck, r.allPassed ? .done : .failed(Self.describe(r))) }
-        derive(.wine, backend.isWineInstalled())
-        derive(.prefix, backend.isPrefixReady() && !backend.prefixNeedsUpdate())
+        let version = backend.crossOverVersion()
+        if version != crossOverVersion { crossOverVersion = version }
+        derive(.crossOver, backend.isCrossOverInstalled())
+        derive(.bottle, backend.isBottleReady())
         derive(.steam, backend.isSteamInstalled())
+        let legacy = backend.isLegacyMigrationAvailable()
+        if legacy != legacyMigrationAvailable { legacyMigrationAvailable = legacy }
         let cs2 = backend.cs2InstallState()
         if cs2 != cs2State { cs2State = cs2 }
         switch cs2 {
@@ -282,10 +289,10 @@ final class AppState {
         case .systemCheck:
             await runSystemCheck()
             return status(.systemCheck).isDone
-        case .wine:
-            return await performWineInstall()
-        case .prefix:
-            return await performPrefixStep()
+        case .crossOver:
+            return checkCrossOver(reportingFailure: true)
+        case .bottle:
+            return await performBottleCreate()
         case .steam:
             return await performSteamInstall()
         case .openSteam:
@@ -313,67 +320,55 @@ final class AppState {
         set(.systemCheck, r.allPassed ? .done : .failed(Self.describe(r)))
     }
 
-    static let prefixUpdateText = "Обновление префикса Wine (1–2 мин)…"
-
-    private func performWineInstall() async -> Bool {
-        await performStep(.wine, "Установка Wine") { [backend] progress, log in
-            try await backend.installWine(progress: progress, log: log)
-        }
-    }
-
-    func installWine() {
-        Task {
-            if await performWineInstall() { await autoUpdatePrefixIfNeeded() }
-        }
-    }
-
-    var prefixNeedsUpdate: Bool { backend.isPrefixReady() && backend.prefixNeedsUpdate() }
-
-    private func autoUpdatePrefixIfNeeded() async {
-        guard prefixNeedsUpdate else { return }
-        _ = await performPrefixUpdate()
-    }
-
+    /// Re-checks for CrossOver.app. Returns true when found.
     @discardableResult
-    private func performPrefixUpdate() async -> Bool {
-        guard !status(.prefix).isRunning else { return false }
-        set(.prefix, .running(nil))
-        statusText = Self.prefixUpdateText
-        log("▶ Обновление префикса")
-        var ok = true
-        do {
-            try await backend.updatePrefix(log: makeLogger())
-            log("✔ Обновление префикса: готово")
-            set(.prefix, .done)
-        } catch {
-            log("✘ Обновление префикса: \(error.localizedDescription)")
-            set(.prefix, .failed(error.localizedDescription))
-            ok = false
-        }
-        statusText = ""
+    func checkCrossOver(reportingFailure: Bool = false) -> Bool {
         refresh()
-        return ok
+        if backend.isCrossOverInstalled() {
+            set(.crossOver, .done)
+            return true
+        }
+        let msg = "CrossOver не найден в «Программы». Скачайте и установите его, затем нажмите «Проверить снова»."
+        set(.crossOver, .failed(msg))
+        if reportingFailure {
+            log("✘ CrossOver не найден")
+            setupFailure = SetupFailure(stage: .crossOver, message: msg)
+        }
+        return false
     }
 
-    func updatePrefix() {
-        Task { await performPrefixUpdate() }
-    }
+    func recheckCrossOver() { checkCrossOver() }
 
-    private func performPrefixCreate() async -> Bool {
-        let s = settings
-        return await performStep(.prefix, "Создание префикса") { [backend] _, log in
-            try await backend.createPrefix(log: log)
-            try await backend.applySettings(s, log: log)
+    func downloadCrossOver() { NSWorkspace.shared.open(Self.crossOverDownloadURL) }
+
+    private func performBottleCreate() async -> Bool {
+        guard backend.isCrossOverInstalled() else {
+            return checkCrossOver(reportingFailure: true)
+        }
+        return await performStep(.bottle, "Создание бутылки") { [backend] _, log in
+            try await backend.createBottle(log: log)
         }
     }
 
-    /// Create the prefix, or update it when it already exists but belongs to another Wine release.
-    private func performPrefixStep() async -> Bool {
-        prefixNeedsUpdate ? await performPrefixUpdate() : await performPrefixCreate()
+    func createBottle() {
+        Task { _ = await performBottleCreate() }
     }
 
-    func createPrefix() {
-        Task { _ = await performPrefixCreate() }
+    func migrateLegacy() {
+        guard !isBusy else { return }
+        Task {
+            statusText = "Перенос Steam и CS2…"
+            log("▶ Перенос из старой установки")
+            do {
+                try await backend.migrateLegacy(log: makeLogger())
+                log("✔ Перенос завершён")
+            } catch {
+                log("✘ Перенос: \(error.localizedDescription)")
+                set(.steam, .failed(error.localizedDescription))
+            }
+            statusText = ""
+            refresh()
+        }
     }
 
     private func performSteamInstall() async -> Bool {
@@ -436,16 +431,7 @@ final class AppState {
         let s = settings
         let logger = makeLogger()
         await refreshSteamRunning()
-        if prefixNeedsUpdate && !isSteamRunning {
-            set(.prefix, .running(nil))
-            statusText = Self.prefixUpdateText
-            log("▶ Обновление префикса")
-            do { try await backend.updatePrefix(log: logger) }
-            catch { set(.prefix, .failed(error.localizedDescription)); throw error }
-            set(.prefix, .done)
-        }
         statusText = game ? "Запуск игры…" : "Запуск Steam…"
-        try await backend.applySettings(s, log: logger)
         let p = try backend.launch(settings: s, launchGame: game, log: logger)
         if process?.isRunning != true { process = p }
         isSteamRunning = true
@@ -462,7 +448,7 @@ final class AppState {
         }
     }
 
-    /// Kills everything in the prefix (`wineserver -k`).
+    /// Kills everything in the bottle (`wineserver -k`).
     func stop() {
         statusText = "Остановка…"
         process?.terminate()

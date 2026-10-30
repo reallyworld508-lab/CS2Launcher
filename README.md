@@ -2,17 +2,18 @@
 
 [English](README.en.md) | **Русский**
 
-CS2 Launcher — приложение для macOS (SwiftUI), которое позволяет запустить Windows-версию Counter-Strike 2 на Маках с Apple Silicon. Оно скачивает закреплённую сборку Wine (Gcenx `wine-devel 11.20` с MoltenVK, проверка sha256; не входит в приложение, загружается при настройке), создаёт Wine-префикс, тихо устанавливает Windows-клиент Steam, патчит `steamwebhelper.exe` (чтобы окна Steam не были чёрными) и запускает CS2 через `steam.exe -applaunch 730` с `-vulkan`.
+CS2 Launcher — приложение для macOS (SwiftUI), которое помогает запустить Windows-версию Counter-Strike 2 на Маках с Apple Silicon. Оно работает поверх [CrossOver](https://www.codeweavers.com/crossover): создаёт бутылку CrossOver, включает в ней D3DMetal, тихо устанавливает Windows-клиент Steam и запускает CS2 через `steam.exe -applaunch 730` (DirectX 11 через D3DMetal).
 
 > Интерфейс приложения сейчас только на русском языке.
 
-> **Статус:** установка Wine, префикса и Steam, вход в Steam и загрузка CS2 проверены на M2 / macOS 26. CS2 запускается с `-vulkan` и доходит до меню внутри движка, но картинка замирает на заставке: MoltenVK не поддерживает функцию, которую использует Vulkan-рендер CS2 (`Metal does not allow uncompressed views of compressed images`). Ищем другой графический бэкенд.
+> **Статус:** Steam и CS2 (до главного меню) проверены на M2 / macOS 26 с CrossOver 26.3.
 
 ## Требования
 
 - Mac с Apple Silicon
 - macOS 15 или новее
 - Rosetta 2 (`softwareupdate --install-rosetta`)
+- [CrossOver](https://www.codeweavers.com/crossover) от CodeWeavers: 14 дней бесплатно, затем нужна лицензия. Устанавливается вами в «Программы», лаунчер его не содержит и не скачивает
 - Свободное место: сама CS2 занимает около 69 ГБ, рекомендуется ~80 ГБ (встроенная проверка требует минимум 45 ГБ на момент настройки, этого не хватит для установки игры)
 
 ## Установка
@@ -27,10 +28,16 @@ CS2 Launcher — приложение для macOS (SwiftUI), которое п�
 
 ## Использование
 
-1. На экране «Настройка» нажмите **«Установить всё»**. Лаунчер по порядку выполнит проверку системы, установку Wine, создание (или обновление) префикса и установку Steam, затем откроет Steam; уже выполненные шаги пропускаются. Показывается «Шаг N из M». Загрузки идут только после этого нажатия (~250 МБ). При ошибке кнопка превращается в «Повторить» и продолжает с шага, на котором остановилось. Отдельные шаги можно выполнять и вручную.
-2. В открывшемся Steam сами войдите в аккаунт и установите Counter-Strike 2. Логин и пароль лаунчер не запрашивает и не хранит.
-3. Лаунчер сам отслеживает загрузку (`appmanifest_730.acf`): на шаге CS2 показывается «Скачивается: NN%», по завершении шаг отмечается выполненным автоматически, и приложение переходит на главный экран.
-4. Нажмите «Играть». Это работает и когда Steam уже открыт, и когда нет (запускается `-applaunch 730`). Окно появляется через 20–60 секунд. «Стоп» завершает все процессы Wine.
+1. Установите CrossOver. Если его нет, на шаге «CrossOver» кнопка **«Скачать CrossOver»** откроет сайт CodeWeavers; после установки нажмите «Проверить снова».
+2. На экране «Настройка» нажмите **«Установить всё»**. Лаунчер по порядку выполнит проверку системы, проверит CrossOver, создаст бутылку `CS2` с включённым D3DMetal и установит Steam, затем откроет Steam; уже выполненные шаги пропускаются. Если CrossOver не найден, установка остановится с понятным сообщением. При ошибке кнопка превращается в «Повторить» и продолжает с шага, на котором остановилось.
+3. Первый запуск новой бутылки регистрирует DLL около 3 минут, и только потом появляется окно Steam. Это нормально.
+4. В открывшемся Steam сами войдите в аккаунт и установите Counter-Strike 2. Логин и пароль лаунчер не запрашивает и не хранит.
+5. Лаунчер сам отслеживает загрузку (`appmanifest_730.acf`): на шаге CS2 показывается «Скачивается: NN%», по завершении шаг отмечается выполненным автоматически, и приложение переходит на главный экран.
+6. Нажмите «Играть». Это работает и когда Steam уже открыт, и когда нет (запускается `-applaunch 730`). «Стоп» завершает все процессы бутылки.
+
+### Перенос из старой установки
+
+Ранние версии лаунчера использовали отдельный Wine и префикс в `~/Library/Application Support/CS2Launcher/Prefix`. Если он есть, а в бутылке Steam ещё нет, на шаге «Steam» появится кнопка **«Перенести Steam и CS2 из старой установки»**. Она клонирует папку Steam в бутылку (`cp -Rc`, клон APFS, мгновенно и без дополнительного места) и возвращает оригинальный `steamwebhelper.exe`. Старая папка не изменяется и не удаляется. Автоматически перенос не запускается.
 
 ## Настройки
 
@@ -38,59 +45,54 @@ CS2 Launcher — приложение для macOS (SwiftUI), которое п�
 
 | Параметр | Что делает |
 |---|---|
-| Аргументы игры | Передаются CS2 (по умолчанию `-novid`). `-vulkan` добавляется автоматически; чтобы использовать DirectX 11, укажите `-dx11` |
+| Аргументы игры | Передаются CS2 после `-applaunch 730` (по умолчанию `-novid`) |
 | Аргументы Steam | Дополнительные аргументы `steam.exe` |
 | Ограничение FPS | Добавляет `+fps_max N`; пусто — без ограничения |
 | Metal HUD | `MTL_HUD_ENABLED=1`, показывает FPS и нагрузку GPU |
-| Retina-режим | Ключ `RetinaMode` драйвера Wine: рендер в полном разрешении, тяжелее |
-| MSync | `WINEMSYNC=1`, `WINEESYNC=1` (включено по умолчанию) |
-| Сообщать поддержку AVX | `ROSETTA_ADVERTISE_AVX=1` (включено по умолчанию), нужно для запуска под Rosetta 2 |
+
+`CX_GRAPHICS_BACKEND=d3dmetal` и `WINEMSYNC=1` записываются в `cxbottle.conf` бутылки при её подготовке.
 
 ## Как это работает
 
 ```mermaid
 flowchart LR
-    A[Проверка системы] --> B[Скачивание Wine 11.20<br/>sha256]
-    B --> C[Создание префикса<br/>wineboot]
-    C --> D[Установка Steam<br/>SteamSetup.exe /S]
-    D --> E[Патч steamwebhelper.exe<br/>обёртка]
-    E --> F[steam.exe -applaunch 730 -vulkan]
-    F --> G[CS2 через Wine + MoltenVK]
+    A[Проверка системы] --> B[CrossOver найден]
+    B --> C[Бутылка CS2<br/>cxbottle --create]
+    C --> D[D3DMetal в cxbottle.conf]
+    D --> E[Установка Steam<br/>SteamSetup.exe /S]
+    E --> F[steam.exe -applaunch 730]
+    F --> G[CS2: DirectX 11 через D3DMetal]
 ```
 
-Данные хранятся в `~/Library/Application Support/CS2Launcher` (`Runtime`, `Prefix`, `Logs`, `Downloads`, `settings.json`).
-
-Патч: `steamwebhelper.exe` переименовывается в `steamwebhelper_real.exe`, а на его место кладётся маленькая обёртка ([wrapper/steamwebhelper-wrapper.c](wrapper/steamwebhelper-wrapper.c)), которая запускает оригинал с `--disable-gpu --single-process`. Steam запускается с флагами `-noverifyfiles -norepairfiles -nobootstrapupdate -skipinitialbootstrap`, чтобы он не восстановил оригинальный файл. Эти флаги добавляются всегда.
+Бутылка лежит в `~/Library/Application Support/CrossOver/Bottles/CS2` и видна в самом CrossOver. Данные лаунчера — в `~/Library/Application Support/CS2Launcher` (`Logs`, `Downloads`, `settings.json`). Оригинальный `steamwebhelper.exe` не подменяется, Steam запускается без специальных флагов.
 
 ## Если что-то не работает
 
-- **Чёрное окно Steam.** Остановите процессы («Стоп») и снова запустите Steam или игру из лаунчера: при каждом запуске обёртка применяется заново, если она была заменена.
-- **Обновление Steam.** Из-за флагов клиент Steam не обновляет сам себя, и отключить эти флаги в настройках нельзя. Кнопки переустановки в приложении нет. Шаг «Steam» считается выполненным, пока существует `steam.exe` в префиксе; если удалить папку `drive_c/Program Files (x86)/Steam` внутри `Prefix` (вместе с ней удалится и установленная CS2), шаг снова станет доступен и поставит свежий клиент.
+- **Нет окна Steam при первом запуске.** Подождите около 3 минут: CrossOver регистрирует DLL в новой бутылке.
+- **CrossOver не найден.** Лаунчер ищет `/Applications/CrossOver.app` и `~/Applications/CrossOver.app`.
 - **Логи.** Журнал доступен в приложении («Журнал»), также пишется в файл в `Logs`.
-- **Не запускается игра.** Попробуйте `-dx11` в аргументах игры, отключите «Сообщать поддержку AVX» или MSync.
+- **Игра не запускается.** Нажмите «Стоп» и запустите снова; проверьте в журнале, что бутылка `CS2` существует и D3DMetal включён.
 
 ## Известные ограничения
 
 - Работа VAC и матчмейкинга под Wine не гарантируется. Используйте на свой страх и риск.
 - Производительность зависит от чипа M-серии.
-- Рендерер CS2 через MoltenVK экспериментальный.
+- После окончания пробного периода CrossOver нужна лицензия.
 
 ## Сборка из исходников
 
 ```sh
 swift build
-swift test
+swift test                   # CrossOver для тестов не нужен
 scripts/make-app.sh          # build/CS2 Launcher.app
 scripts/package-release.sh   # zip + sha256 в build/
-scripts/build-wrapper.sh     # пересобрать обёртку, нужен llvm-mingw (переменная LLVM_MINGW)
 ```
 
 ## Благодарности
 
-- [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds) — сборки Wine для macOS
-- [MoltenVK](https://github.com/KhronosGroup/MoltenVK) — Vulkan поверх Metal
-- Идея обёртки steamwebhelper — [notpop/steam-on-m1-wine](https://github.com/notpop/steam-on-m1-wine)
+- [CodeWeavers CrossOver](https://www.codeweavers.com/crossover) — слой совместимости Windows
+- Apple D3DMetal (Game Porting Toolkit) — DirectX поверх Metal
 
 ## Отказ от ответственности
 
-Проект не связан с Valve или Apple. Counter-Strike и Steam — товарные знаки Valve Corporation. Лицензия: [MIT](LICENSE).
+Проект не связан с Valve, Apple или CodeWeavers. Counter-Strike и Steam — товарные знаки Valve Corporation. CrossOver — товарный знак CodeWeavers. Лицензия: [MIT](LICENSE).

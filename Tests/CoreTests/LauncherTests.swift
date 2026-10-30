@@ -21,15 +21,7 @@ private final class DoubleBox: @unchecked Sendable {
 }
 
 final class LauncherTests: XCTestCase {
-    static let verifyFlags = ["-noverifyfiles", "-norepairfiles", "-nobootstrapupdate", "-skipinitialbootstrap"]
-
-    func testSteamArgumentsDedupeVerifyFlags() {
-        let p = Paths(root: makeTempDir()); var s = Settings()
-        s.steamArgs = "-NoVerifyFiles -foo"
-        let a = GameLauncher.steamArguments(paths: p, settings: s, launchGame: false)
-        for f in Self.verifyFlags { XCTAssertEqual(a.filter { $0.lowercased() == f }.count, 1, f) }
-        XCTAssertTrue(a.contains("-foo"))
-    }
+    private let steamExe = URL(fileURLWithPath: "/b/steam.exe")
 
     func testOldDefaultSteamArgsMigrated() throws {
         let url = makeTempDir().appendingPathComponent("s.json")
@@ -39,15 +31,15 @@ final class LauncherTests: XCTestCase {
         XCTAssertEqual(Settings.load(from: url).steamArgs, "-foo")
     }
 
-    private func makeWine() -> (WineRunner, MockProcessRunner, Paths) {
-        let paths = Paths(root: makeTempDir())
+    private func makeWine() -> (WineRunner, MockProcessRunner, Bottle) {
+        let fx = CrossOverFixture()
         let mock = MockProcessRunner()
-        return (WineRunner(paths: paths, runner: mock), mock, paths)
+        return (WineRunner(locator: fx.locator, bottle: fx.bottle, runner: mock), mock, fx.bottle)
     }
 
-    private func createSteamExe(_ paths: Paths) throws {
-        try FileManager.default.createDirectory(at: paths.steamExe.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data().write(to: paths.steamExe)
+    private func createSteamExe(_ bottle: Bottle) throws {
+        try FileManager.default.createDirectory(at: bottle.steamExe.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data().write(to: bottle.steamExe)
     }
 
     func testSplitPlain() {
@@ -64,49 +56,37 @@ final class LauncherTests: XCTestCase {
     }
 
     func testSteamArgumentsWithoutGame() {
-        let p = Paths(root: makeTempDir()); let s = Settings()
-        XCTAssertEqual(GameLauncher.steamArguments(paths: p, settings: s, launchGame: false),
-                       [p.steamExe.path] + Self.verifyFlags)
+        XCTAssertEqual(GameLauncher.steamArguments(steamExe: steamExe, settings: Settings(), launchGame: false),
+                       [steamExe.path])
+        var s = Settings(); s.steamArgs = "-foo"
+        XCTAssertEqual(GameLauncher.steamArguments(steamExe: steamExe, settings: s, launchGame: false),
+                       [steamExe.path, "-foo"])
     }
     func testSteamArgumentsWithGameAndFps() {
-        let p = Paths(root: makeTempDir()); var s = Settings(); s.fpsCap = 144
-        XCTAssertEqual(GameLauncher.steamArguments(paths: p, settings: s, launchGame: true),
-                       ([p.steamExe.path] + Self.verifyFlags + ["-applaunch", "730",
-                        "-vulkan", "-novid", "+fps_max", "144"]))
+        var s = Settings(); s.fpsCap = 144
+        XCTAssertEqual(GameLauncher.steamArguments(steamExe: steamExe, settings: s, launchGame: true),
+                       [steamExe.path, "-applaunch", "730", "-novid", "+fps_max", "144"])
     }
-    func testVulkanInjectionRules() {
-        let p = Paths(root: makeTempDir()); var s = Settings()
-        func args() -> [String] { GameLauncher.steamArguments(paths: p, settings: s, launchGame: true) }
-        XCTAssertEqual(args().filter { $0.lowercased() == "-vulkan" }.count, 1)
-        s.gameArgs = "-novid -dx11"
-        XCTAssertFalse(args().contains("-vulkan")); XCTAssertTrue(args().contains("-dx11"))
-        s.gameArgs = "-novid -VULKAN"
-        XCTAssertEqual(args().filter { $0.lowercased() == "-vulkan" }.count, 1)
-        XCTAssertTrue(args().contains("-VULKAN"))
-        s.gameArgs = "-DX11"
-        XCTAssertFalse(args().contains("-vulkan"))
-        s.gameArgs = ""
-        XCTAssertEqual(Array(args().suffix(3)), ["-applaunch", "730", "-vulkan"])
-        XCTAssertFalse(GameLauncher.steamArguments(paths: p, settings: s, launchGame: false).contains("-vulkan"))
+    func testNoRendererOrVerifyFlagsForced() {
+        var s = Settings(); s.gameArgs = ""
+        let a = GameLauncher.steamArguments(steamExe: steamExe, settings: s, launchGame: true)
+        XCTAssertEqual(a, [steamExe.path, "-applaunch", "730"])
+        XCTAssertFalse(a.contains("-vulkan"))
+        XCTAssertFalse(a.contains("-noverifyfiles"))
+        XCTAssertFalse(GameLauncher.steamArguments(steamExe: steamExe, settings: Settings(), launchGame: true).contains("-vulkan"))
     }
     func testSteamArgumentsNoFpsWhenZeroOrNil() {
-        let p = Paths(root: makeTempDir()); var s = Settings()
-        XCTAssertFalse(GameLauncher.steamArguments(paths: p, settings: s, launchGame: true).contains("+fps_max"))
+        var s = Settings()
+        XCTAssertFalse(GameLauncher.steamArguments(steamExe: steamExe, settings: s, launchGame: true).contains("+fps_max"))
         s.fpsCap = 0
-        XCTAssertFalse(GameLauncher.steamArguments(paths: p, settings: s, launchGame: true).contains("+fps_max"))
+        XCTAssertFalse(GameLauncher.steamArguments(steamExe: steamExe, settings: s, launchGame: true).contains("+fps_max"))
     }
 
     func testEnvironmentToggles() {
-        var s = Settings(); s.metalHUD = false; s.msync = false; s.advertiseAVX = false
+        var s = Settings(); s.metalHUD = false
         XCTAssertEqual(GameLauncher.environment(for: s), [:])
         s.metalHUD = true
-        XCTAssertEqual(GameLauncher.environment(for: s)["MTL_HUD_ENABLED"], "1")
-        s.msync = true
-        let e = GameLauncher.environment(for: s)
-        XCTAssertEqual(e["WINEMSYNC"], "1"); XCTAssertEqual(e["WINEESYNC"], "1")
-        s.advertiseAVX = true
-        XCTAssertEqual(GameLauncher.environment(for: s)["ROSETTA_ADVERTISE_AVX"], "1")
-        XCTAssertNil(GameLauncher.environment(for: Settings())["MTL_HUD_ENABLED"])
+        XCTAssertEqual(GameLauncher.environment(for: s), ["MTL_HUD_ENABLED": "1"])
     }
 
     func testLaunchThrowsWhenSteamMissing() {
@@ -118,58 +98,64 @@ final class LauncherTests: XCTestCase {
     }
 
     func testLaunchStartsSteam() throws {
-        let (wine, mock, paths) = makeWine()
-        try createSteamExe(paths)
-        _ = try GameLauncher(wine: wine).launch(settings: Settings(), launchGame: true, log: { _ in })
+        let (wine, mock, bottle) = makeWine()
+        try createSteamExe(bottle)
+        var st = Settings(); st.metalHUD = true
+        _ = try GameLauncher(wine: wine).launch(settings: st, launchGame: true, log: { _ in })
         XCTAssertEqual(mock.calls.count, 1)
-        XCTAssertEqual(mock.calls[0].arguments.first, paths.steamExe.path)
-        XCTAssertTrue(mock.calls[0].arguments.contains("730"))
-        XCTAssertNil(mock.calls[0].environment["D3DM_SUPPORT_DXR"])
-        XCTAssertTrue(mock.calls[0].arguments.contains("-vulkan"))
-        XCTAssertEqual(mock.calls[0].environment["WINEPREFIX"], paths.prefix.path)
+        XCTAssertEqual(mock.calls[0].arguments,
+                       ["--bottle", "CS2", "--no-wait", bottle.steamExe.path, "-applaunch", "730", "-novid"])
+        XCTAssertEqual(mock.calls[0].environment["MTL_HUD_ENABLED"], "1")
     }
 
     func testStopRunsWineserverKill() async {
         let (wine, mock, _) = makeWine()
         await GameLauncher(wine: wine).stop()
         XCTAssertEqual(mock.calls.first?.arguments, ["-k"])
+        XCTAssertEqual(mock.calls.first?.executable.lastPathComponent, "wineserver")
     }
 
     func testCS2Path() {
-        let (wine, _, paths) = makeWine()
+        let (wine, _, _) = makeWine()
         let g = GameLauncher(wine: wine)
         XCTAssertTrue(g.cs2Executable.path.hasSuffix("Counter-Strike Global Offensive/game/bin/win64/cs2.exe"))
         XCTAssertFalse(g.isCS2Installed)
         try? FileManager.default.createDirectory(at: g.cs2Executable.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? Data().write(to: g.cs2Executable)
         XCTAssertTrue(g.isCS2Installed)
-        _ = paths
     }
 
     func testInstallHappyPath() async throws {
-        let (wine, mock, paths) = makeWine()
+        let (wine, mock, bottle) = makeWine()
+        let downloads = makeTempDir()
         mock.exitCodeHandler = { _ in
-            try? FileManager.default.createDirectory(at: paths.steamExe.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try? Data().write(to: paths.steamExe)
+            try? FileManager.default.createDirectory(at: bottle.steamExe.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? Data().write(to: bottle.steamExe)
             return 0
         }
         let dl = MockDownloader()
-        let inst = SteamInstaller(wine: wine, downloader: dl, pollInterval: .milliseconds(10), pollTimeout: .seconds(1))
+        let inst = SteamInstaller(wine: wine, downloader: dl, downloads: downloads, pollInterval: .milliseconds(10), pollTimeout: .seconds(1))
         XCTAssertFalse(inst.isInstalled)
         let prog = DoubleBox()
         try await inst.install(progress: { prog.add($0) }, log: { _ in })
         XCTAssertTrue(inst.isInstalled)
         XCTAssertEqual(dl.urls, [SteamInstaller.installerURL])
-        let installerPath = paths.downloads.appendingPathComponent("SteamSetup.exe").path
-        XCTAssertEqual(mock.calls.first?.arguments, [installerPath, "/S"])
+        let installerPath = downloads.appendingPathComponent("SteamSetup.exe").path
+        XCTAssertEqual(mock.calls.first?.arguments, ["--bottle", "CS2", installerPath, "/S"])
         XCTAssertEqual(prog.values.last, 1.0)
         XCTAssertTrue(prog.values.contains(0.6))
+    }
+
+    func testInstallPollTimeoutIsSixMinutes() {
+        let (wine, _, _) = makeWine()
+        let inst = SteamInstaller(wine: wine, downloader: MockDownloader(), downloads: makeTempDir())
+        XCTAssertEqual(inst.pollTimeout, .seconds(360))
     }
 
     func testInstallerFailure() async {
         let (wine, mock, _) = makeWine()
         mock.defaultExitCode = 3
-        let inst = SteamInstaller(wine: wine, downloader: MockDownloader(), pollInterval: .milliseconds(10), pollTimeout: .milliseconds(50))
+        let inst = SteamInstaller(wine: wine, downloader: MockDownloader(), downloads: makeTempDir(), pollInterval: .milliseconds(10), pollTimeout: .milliseconds(50))
         do {
             try await inst.install(progress: { _ in }, log: { _ in })
             XCTFail("expected throw")
@@ -180,7 +166,7 @@ final class LauncherTests: XCTestCase {
 
     func testSteamExeMissingAfterInstall() async {
         let (wine, _, _) = makeWine()
-        let inst = SteamInstaller(wine: wine, downloader: MockDownloader(), pollInterval: .milliseconds(10), pollTimeout: .milliseconds(50))
+        let inst = SteamInstaller(wine: wine, downloader: MockDownloader(), downloads: makeTempDir(), pollInterval: .milliseconds(10), pollTimeout: .milliseconds(50))
         do {
             try await inst.install(progress: { _ in }, log: { _ in })
             XCTFail("expected throw")

@@ -86,8 +86,7 @@ final class SteamLibraryTests: XCTestCase {
     }
 
     func testFileBasedState() throws {
-        let paths = Paths(root: makeTempDir())
-        let lib = SteamLibrary(paths: paths)
+        let lib = SteamLibrary(bottle: CrossOverFixture().bottle)
         XCTAssertEqual(lib.cs2State(), .notInstalled)
         try FileManager.default.createDirectory(at: lib.steamapps, withIntermediateDirectories: true)
         try Self.manifest(flags: 1026, downloaded: 370, toDownload: 1000).write(to: lib.manifestURL, atomically: true, encoding: .utf8)
@@ -99,6 +98,13 @@ final class SteamLibraryTests: XCTestCase {
         XCTAssertEqual(lib.cs2State(), .installed)
         try "broken {".write(to: lib.manifestURL, atomically: true, encoding: .utf8)
         XCTAssertEqual(lib.cs2State(), .notInstalled)
+    }
+
+    func testSteamappsPath() {
+        let fx = CrossOverFixture()
+        let lib = SteamLibrary(bottle: fx.bottle)
+        XCTAssertTrue(lib.steamapps.path.hasSuffix("Bottles/CS2/drive_c/Program Files (x86)/Steam/steamapps"))
+        XCTAssertTrue(lib.manifestURL.path.hasSuffix("steamapps/appmanifest_730.acf"))
     }
 
     func testSteamRunningProbe() async {
@@ -115,19 +121,19 @@ final class SteamLibraryTests: XCTestCase {
 
 final class SetupPlannerTests: XCTestCase {
     func testFreshPlan() {
-        XCTAssertEqual(SetupPlanner.plan(completed: []), [.systemCheck, .wine, .prefix, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.plan(completed: []), [.systemCheck, .crossOver, .bottle, .steam, .openSteam])
     }
 
     func testSkipsDone() {
-        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .wine]), [.prefix, .steam, .openSteam])
-        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .wine, .prefix, .steam, .openSteam]), [])
+        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .crossOver]), [.bottle, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .crossOver, .bottle, .steam, .openSteam]), [])
         // CS2 never part of the plan
         XCTAssertFalse(SetupPlanner.plan(completed: []).contains(.cs2))
     }
 
     func testCompleteness() {
-        XCTAssertTrue(SetupPlanner.isComplete([.wine, .prefix, .steam, .cs2]))
-        XCTAssertFalse(SetupPlanner.isComplete([.wine, .prefix, .steam]))
+        XCTAssertTrue(SetupPlanner.isComplete([.crossOver, .bottle, .steam, .cs2]))
+        XCTAssertFalse(SetupPlanner.isComplete([.crossOver, .bottle, .steam]))
     }
 
     func testStopsOnFirstFailureAndResumes() async {
@@ -136,19 +142,19 @@ final class SetupPlannerTests: XCTestCase {
         let plan = SetupPlanner.plan(completed: [.systemCheck])
         let r = await SetupPlanner.execute(plan: plan, onStart: { i, _ in starts.append(i) }) { st in
             ran.append(st)
-            return st != .prefix
+            return st != .bottle
         }
-        XCTAssertEqual(ran, [.wine, .prefix])
+        XCTAssertEqual(ran, [.crossOver, .bottle])
         XCTAssertEqual(starts, [0, 1])
-        XCTAssertEqual(r, SetupResult(completed: [.wine], failed: .prefix, cancelled: false))
+        XCTAssertEqual(r, SetupResult(completed: [.crossOver], failed: .bottle, cancelled: false))
         XCTAssertFalse(r.succeeded)
 
-        // Retry: wine is done now, the failed stage is first.
-        let retry = SetupPlanner.plan(completed: [.systemCheck, .wine])
-        XCTAssertEqual(retry.first, .prefix)
+        // Retry: CrossOver is done now, the failed stage is first.
+        let retry = SetupPlanner.plan(completed: [.systemCheck, .crossOver])
+        XCTAssertEqual(retry.first, .bottle)
         var ran2: [SetupStage] = []
         let r2 = await SetupPlanner.execute(plan: retry) { ran2.append($0); return true }
-        XCTAssertEqual(ran2, [.prefix, .steam, .openSteam])
+        XCTAssertEqual(ran2, [.bottle, .steam, .openSteam])
         XCTAssertTrue(r2.succeeded)
     }
 
@@ -156,7 +162,7 @@ final class SetupPlannerTests: XCTestCase {
         let t = Task { () -> SetupResult in
             await withTaskCancellationHandler {
                 while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(5)) }
-                return await SetupPlanner.execute(plan: [.wine]) { _ in true }
+                return await SetupPlanner.execute(plan: [.crossOver]) { _ in true }
             } onCancel: {}
         }
         t.cancel()

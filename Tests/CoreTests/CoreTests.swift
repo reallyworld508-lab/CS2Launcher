@@ -12,8 +12,7 @@ final class SettingsTests: XCTestCase {
         let s = Settings()
         XCTAssertEqual(s.gameArgs, "-novid")
         XCTAssertEqual(s.steamArgs, "")
-        XCTAssertFalse(s.metalHUD); XCTAssertFalse(s.retinaMode)
-        XCTAssertTrue(s.msync); XCTAssertTrue(s.advertiseAVX)
+        XCTAssertFalse(s.metalHUD)
         XCTAssertNil(s.fpsCap)
     }
     func testRoundTrip() throws {
@@ -28,7 +27,12 @@ final class SettingsTests: XCTestCase {
         let s = Settings.load(from: url)
         XCTAssertTrue(s.metalHUD)
         XCTAssertEqual(s.gameArgs, "-novid")
-        XCTAssertTrue(s.msync)
+    }
+    func testOldKeysIgnored() throws {
+        let url = makeTempDir().appendingPathComponent("s.json")
+        try Data(#"{"msync": false, "advertiseAVX": false, "retinaMode": true, "fpsCap": 90}"#.utf8).write(to: url)
+        var expected = Settings(); expected.fpsCap = 90
+        XCTAssertEqual(Settings.load(from: url), expected)
     }
     func testCorruptAndMissingFile() throws {
         let dir = makeTempDir()
@@ -43,54 +47,55 @@ final class PathsTests: XCTestCase {
     func testLayout() throws {
         let root = makeTempDir()
         let p = Paths(root: root)
-        XCTAssertEqual(p.runtime.path, root.path + "/Runtime")
-        XCTAssertEqual(p.wineRoot.path, root.path + "/Runtime/wine")
-        XCTAssertEqual(p.wineBin.path, root.path + "/Runtime/wine/bin")
-        XCTAssertEqual(p.prefix.lastPathComponent, "Prefix")
         XCTAssertEqual(p.logs.lastPathComponent, "Logs")
         XCTAssertEqual(p.downloads.lastPathComponent, "Downloads")
         XCTAssertEqual(p.settingsFile.lastPathComponent, "settings.json")
-        XCTAssertTrue(p.steamExe.path.hasSuffix("Prefix/drive_c/Program Files (x86)/Steam/steam.exe"))
+        XCTAssertEqual(p.legacyPrefix.path, root.path + "/Prefix")
         XCTAssertTrue(Paths.default.root.path.hasSuffix("Library/Application Support/CS2Launcher"))
     }
     func testEnsureDirectories() throws {
         let p = Paths(root: makeTempDir().appendingPathComponent("a/b"))
         try p.ensureDirectories()
-        for d in [p.runtime, p.prefix, p.logs, p.downloads] {
+        for d in [p.logs, p.downloads] {
             XCTAssertTrue(FileManager.default.fileExists(atPath: d.path))
         }
     }
 }
 
 final class WineRunnerTests: XCTestCase {
-    func testExecutableSelection() throws {
-        let p = Paths(root: makeTempDir())
-        let w = WineRunner(paths: p, runner: MockProcessRunner())
-        XCTAssertEqual(w.wineExecutable.lastPathComponent, "wine")
-        XCTAssertEqual(w.wineserverExecutable.lastPathComponent, "wineserver")
-        try FileManager.default.createDirectory(at: p.wineBin, withIntermediateDirectories: true)
-        FileManager.default.createFile(atPath: p.wineBin.appendingPathComponent("wine64").path, contents: Data())
-        XCTAssertEqual(w.wineExecutable.lastPathComponent, "wine64")
-    }
-    func testBaseEnvironment() {
-        let p = Paths(root: makeTempDir())
-        let env = WineRunner(paths: p, runner: MockProcessRunner()).baseEnvironment()
-        XCTAssertEqual(env["WINEPREFIX"], p.prefix.path)
-        XCTAssertEqual(env["WINEDEBUG"], "-all")
-        XCTAssertEqual(env["WINEDLLOVERRIDES"], "winemenubuilder.exe=d")
-        XCTAssertTrue(env["PATH"]!.hasPrefix(p.wineBin.path + ":"))
-    }
-    func testRunMergesExtraEnvAndKillAll() async throws {
+    func testRunUsesBottleAndScript() async throws {
+        let fx = CrossOverFixture()
         let mock = MockProcessRunner()
         mock.defaultExitCode = 3
-        let w = WineRunner(paths: Paths(root: makeTempDir()), runner: mock)
-        let code = try await w.run(["a.exe"], extraEnvironment: ["WINEDEBUG": "err"])
+        let w = WineRunner(locator: fx.locator, bottle: fx.bottle, runner: mock)
+        XCTAssertEqual(w.baseEnvironment()["WINEDEBUG"], "-all")
+        let code = try await w.run(["a.exe", "/S"], extraEnvironment: ["WINEDEBUG": "err"])
         XCTAssertEqual(code, 3)
-        XCTAssertEqual(mock.calls[0].arguments, ["a.exe"])
+        XCTAssertEqual(mock.calls[0].executable, fx.locator.wineScript)
+        XCTAssertEqual(mock.calls[0].arguments, ["--bottle", "CS2", "a.exe", "/S"])
         XCTAssertEqual(mock.calls[0].environment["WINEDEBUG"], "err")
-        await w.killAll()
-        XCTAssertEqual(mock.calls[1].arguments, ["-k"])
-        XCTAssertEqual(mock.calls[1].executable.lastPathComponent, "wineserver")
+    }
+    func testStartIsNoWait() throws {
+        let fx = CrossOverFixture()
+        let mock = MockProcessRunner()
+        _ = try WineRunner(locator: fx.locator, bottle: fx.bottle, runner: mock).start(["steam.exe"])
+        XCTAssertEqual(mock.calls[0].arguments, ["--bottle", "CS2", "--no-wait", "steam.exe"])
+    }
+    func testKillAllUsesWineserverWithBottlePrefix() async {
+        let fx = CrossOverFixture()
+        let mock = MockProcessRunner()
+        await WineRunner(locator: fx.locator, bottle: fx.bottle, runner: mock).killAll()
+        XCTAssertEqual(mock.calls[0].executable.lastPathComponent, "wineserver")
+        XCTAssertEqual(mock.calls[0].arguments, ["-k"])
+        XCTAssertEqual(mock.calls[0].environment["WINEPREFIX"], fx.bottle.path.path)
+    }
+    func testThrowsWithoutCrossOver() async {
+        let missing = CrossOverLocator(searchPaths: [makeTempDir().appendingPathComponent("CrossOver.app")])
+        let mock = MockProcessRunner()
+        let w = WineRunner(locator: missing, bottle: Bottle(directory: makeTempDir(), locator: missing, runner: mock), runner: mock)
+        do { _ = try await w.run(["x"]); XCTFail("expected throw") }
+        catch { XCTAssertEqual(error as? CrossOverError, .notInstalled) }
+        XCTAssertTrue(mock.calls.isEmpty)
     }
 }
 

@@ -9,8 +9,7 @@ let package = Package(
         .executable(name: "CS2Launcher", targets: ["CS2Launcher"]),
     ],
     targets: [
-        .target(name: "CS2LauncherCore",
-                resources: [.copy("Resources/steamwebhelper-wrapper.exe")]),
+        .target(name: "CS2LauncherCore"),
         .executableTarget(name: "CS2Launcher", dependencies: ["CS2LauncherCore"]),
         .testTarget(name: "CoreTests", dependencies: ["CS2LauncherCore"]),
     ],
