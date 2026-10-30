@@ -8,6 +8,8 @@ protocol LauncherBackend: Sendable {
     func installWine(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws
     func isPrefixReady() -> Bool
     func createPrefix(log: @escaping @Sendable (String) -> Void) async throws
+    func prefixNeedsUpdate() -> Bool
+    func updatePrefix(log: @escaping @Sendable (String) -> Void) async throws
     func applySettings(_ s: Settings, log: @escaping @Sendable (String) -> Void) async throws
     func isSteamInstalled() -> Bool
     func installSteam(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws
@@ -60,6 +62,11 @@ final class PreviewBackend: LauncherBackend, @unchecked Sendable {
         log("[preview] wineboot --init")
         await nap(1000)
         set { prefix = true }
+    }
+    func prefixNeedsUpdate() -> Bool { false }
+    func updatePrefix(log: @escaping @Sendable (String) -> Void) async throws {
+        log("[preview] wineboot -u")
+        await nap(1000)
     }
     func applySettings(_ s: Settings, log: @escaping @Sendable (String) -> Void) async throws {
         log("[preview] Настройки применены")

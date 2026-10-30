@@ -33,9 +33,10 @@ struct MainView: View {
             }
 
             HStack(spacing: 6) {
-                if state.isGameRunning { ProgressView().controlSize(.small) }
+                if state.isBusy { ProgressView().controlSize(.small) }
                 Text(state.statusText.isEmpty ? "Готово к игре" : state.statusText)
-                    .foregroundStyle(.secondary)
+                    .font(state.isBusy ? .headline : .body)
+                    .foregroundStyle(state.isBusy ? .primary : .secondary)
             }
 
             summary

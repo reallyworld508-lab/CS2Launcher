@@ -12,6 +12,13 @@ struct OnboardingView: View {
                 Text("Несколько шагов, и Counter-Strike 2 запустится на вашем Mac.")
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 12)
+                if !state.statusText.isEmpty {
+                    HStack(spacing: 8) {
+                        if state.isBusy { ProgressView().controlSize(.small) }
+                        Text(state.statusText).font(.headline)
+                    }
+                    .padding(.bottom, 12)
+                }
                 ForEach(SetupStep.allCases) { step in
                     StepRow(step: step)
                     if step != SetupStep.allCases.last { Divider() }
@@ -83,8 +90,13 @@ private struct StepRow: View {
                 }
             case .prefix:
                 if !s.isDone {
-                    Button(failed(s) ? "Повторить" : "Создать") { state.createPrefix() }
-                        .disabled(busy || !unlocked)
+                    if state.prefixNeedsUpdate {
+                        Button(failed(s) ? "Повторить" : "Обновить") { state.updatePrefix() }
+                            .disabled(busy || !unlocked)
+                    } else {
+                        Button(failed(s) ? "Повторить" : "Создать") { state.createPrefix() }
+                            .disabled(busy || !unlocked)
+                    }
                 }
             case .steam:
                 if !s.isDone {

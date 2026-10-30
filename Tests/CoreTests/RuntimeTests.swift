@@ -64,6 +64,49 @@ final class RuntimeTests: XCTestCase {
         catch { XCTAssertEqual(error as? RuntimeError, .commandFailed("wineboot --init", 3)) }
     }
 
+    func testInitializeWritesMarker() async throws {
+        let paths = Paths(root: makeTempDir())
+        let pm = PrefixManager(wine: WineRunner(paths: paths, runner: MockProcessRunner()))
+        try await pm.initialize(log: { _ in })
+        let m = try String(contentsOf: paths.prefix.appendingPathComponent(".cs2l-prefix-runtime"), encoding: .utf8)
+        XCTAssertEqual(m, RuntimeManager.wineRelease.version)
+    }
+
+    func testPrefixUpdateRunsWinebootUAndWritesMarker() async throws {
+        let paths = Paths(root: makeTempDir())
+        let runner = MockProcessRunner()
+        let pm = PrefixManager(wine: WineRunner(paths: paths, runner: runner))
+        try FileManager.default.createDirectory(at: paths.prefix, withIntermediateDirectories: true)
+        try await pm.update(log: { _ in })
+        XCTAssertEqual(runner.calls.map(\.arguments), [["wineboot", "-u"]])
+        let m = try String(contentsOf: paths.prefix.appendingPathComponent(".cs2l-prefix-runtime"), encoding: .utf8)
+        XCTAssertEqual(m, RuntimeManager.wineRelease.version)
+    }
+
+    func testPrefixUpdateFailure() async {
+        let runner = MockProcessRunner(); runner.defaultExitCode = 5
+        let paths = Paths(root: makeTempDir())
+        let pm = PrefixManager(wine: WineRunner(paths: paths, runner: runner))
+        do { try await pm.update(log: { _ in }); XCTFail() }
+        catch { XCTAssertEqual(error as? RuntimeError, .commandFailed("wineboot -u", 5)) }
+        XCTAssertFalse(FileManager.default.fileExists(
+            atPath: paths.prefix.appendingPathComponent(".cs2l-prefix-runtime").path))
+    }
+
+    func testNeedsUpdate() throws {
+        let paths = Paths(root: makeTempDir())
+        let pm = PrefixManager(wine: WineRunner(paths: paths, runner: MockProcessRunner()))
+        XCTAssertFalse(pm.needsUpdate) // uninitialized
+        let fm = FileManager.default
+        try fm.createDirectory(at: paths.prefix.appendingPathComponent("drive_c"), withIntermediateDirectories: true)
+        XCTAssertTrue(pm.needsUpdate) // no marker
+        let marker = paths.prefix.appendingPathComponent(".cs2l-prefix-runtime")
+        try "wine-7.7".write(to: marker, atomically: true, encoding: .utf8)
+        XCTAssertTrue(pm.needsUpdate)
+        try (RuntimeManager.wineRelease.version + "\n").write(to: marker, atomically: true, encoding: .utf8)
+        XCTAssertFalse(pm.needsUpdate)
+    }
+
     func testInstalledFlags() throws {
         let paths = Paths(root: makeTempDir())
         let m = RuntimeManager(paths: paths, downloader: FixedDownloader(bytes: Data()), runner: MockProcessRunner())

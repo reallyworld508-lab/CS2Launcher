@@ -77,6 +77,8 @@ final class AppState {
 
     func status(_ step: SetupStep) -> StepStatus { stepStatus[step] ?? .pending }
 
+    var isBusy: Bool { isGameRunning || SetupStep.allCases.contains { status($0).isRunning } }
+
     var isSetupComplete: Bool { SetupStep.allCases.allSatisfy { status($0).isDone } }
 
     /// A step can be started only when all previous steps are done.
@@ -99,7 +101,7 @@ final class AppState {
     func refresh() {
         if let r = systemCheckResult { set(.systemCheck, r.allPassed ? .done : .failed(Self.describe(r))) }
         derive(.wine, backend.isWineInstalled())
-        derive(.prefix, backend.isPrefixReady())
+        derive(.prefix, backend.isPrefixReady() && !backend.prefixNeedsUpdate())
         derive(.steam, backend.isSteamInstalled())
         derive(.cs2, backend.isCS2Installed())
     }
@@ -134,10 +136,42 @@ final class AppState {
         set(.systemCheck, r.allPassed ? .done : .failed(Self.describe(r)))
     }
 
+    static let prefixUpdateText = "Обновление префикса Wine (1–2 мин)…"
+
     func installWine() {
-        runStep(.wine, "Установка Wine") { [backend] progress, log in
+        runStep(.wine, "Установка Wine", then: { [weak self] in
+            await self?.autoUpdatePrefixIfNeeded()
+        }) { [backend] progress, log in
             try await backend.installWine(progress: progress, log: log)
         }
+    }
+
+    var prefixNeedsUpdate: Bool { backend.isPrefixReady() && backend.prefixNeedsUpdate() }
+
+    private func autoUpdatePrefixIfNeeded() async {
+        guard prefixNeedsUpdate else { return }
+        await performPrefixUpdate()
+    }
+
+    private func performPrefixUpdate() async {
+        guard !status(.prefix).isRunning else { return }
+        set(.prefix, .running(nil))
+        statusText = Self.prefixUpdateText
+        log("▶ Обновление префикса")
+        do {
+            try await backend.updatePrefix(log: makeLogger())
+            log("✔ Обновление префикса: готово")
+            set(.prefix, .done)
+        } catch {
+            log("✘ Обновление префикса: \(error.localizedDescription)")
+            set(.prefix, .failed(error.localizedDescription))
+        }
+        statusText = ""
+        refresh()
+    }
+
+    func updatePrefix() {
+        Task { await performPrefixUpdate() }
     }
 
     func createPrefix() {
@@ -155,6 +189,7 @@ final class AppState {
     }
 
     private func runStep(_ step: SetupStep, _ name: String,
+                         then after: (@Sendable @MainActor () async -> Void)? = nil,
                          _ work: @escaping @Sendable (@escaping @Sendable (Double) -> Void,
                                                       @escaping @Sendable (String) -> Void) async throws -> Void) {
         guard !status(step).isRunning else { return }
@@ -173,6 +208,7 @@ final class AppState {
                 log("✔ \(name): готово")
                 set(step, .done)
                 refresh()
+                await after?()
             } catch {
                 log("✘ \(name): \(error.localizedDescription)")
                 set(step, .failed(error.localizedDescription))
@@ -188,15 +224,24 @@ final class AppState {
     private func launch(game: Bool) {
         guard !isGameRunning else { return }
         isGameRunning = true
-        statusText = game ? "Запуск игры…" : "Запуск Steam…"
         let s = settings
         let logger = makeLogger()
         Task {
             do {
+                if prefixNeedsUpdate {
+                    set(.prefix, .running(nil))
+                    statusText = Self.prefixUpdateText
+                    log("▶ Обновление префикса")
+                    do { try await backend.updatePrefix(log: logger) }
+                    catch { set(.prefix, .failed(error.localizedDescription)); throw error }
+                    set(.prefix, .done)
+                }
+                statusText = game ? "Запуск игры…" : "Запуск Steam…"
                 try await backend.applySettings(s, log: logger)
                 let p = try backend.launch(settings: s, launchGame: game, log: logger)
                 process = p
-                statusText = game ? "Игра запущена" : "Steam запущен"
+                statusText = game ? "Игра запускается, окно появится через 20–60 с"
+                                  : "Steam запускается, окно появится через 20–60 с"
                 let code = await p.waitUntilExit()
                 log("Процесс завершён, код \(code)")
                 statusText = code == 0 ? "Готово к игре" : "Процесс завершился с кодом \(code)"

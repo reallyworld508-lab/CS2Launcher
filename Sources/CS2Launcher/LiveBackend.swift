@@ -39,6 +39,12 @@ struct LiveBackend: LauncherBackend {
         try await prefix.initialize(log: log)
     }
 
+    func prefixNeedsUpdate() -> Bool { prefix.needsUpdate }
+
+    func updatePrefix(log: @escaping @Sendable (String) -> Void) async throws {
+        try await prefix.update(log: log)
+    }
+
     func applySettings(_ s: Settings, log: @escaping @Sendable (String) -> Void) async throws {
         try await prefix.apply(s, log: log)
     }

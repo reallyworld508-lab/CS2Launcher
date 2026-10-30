@@ -15,6 +15,31 @@ public struct PrefixManager: Sendable {
         let code = try await wine.run(["wineboot", "--init"], onOutput: log)
         guard code == 0 else { throw RuntimeError.commandFailed("wineboot --init", code) }
         try await apply(Settings(), log: log)
+        try writeMarker()
+    }
+
+    static let markerName = ".cs2l-prefix-runtime"
+
+    var markerURL: URL { wine.paths.prefix.appendingPathComponent(Self.markerName) }
+
+    private func writeMarker() throws {
+        try RuntimeManager.wineRelease.version.write(to: markerURL, atomically: true, encoding: .utf8)
+    }
+
+    /// True when the prefix exists but was last set up by a different Wine release (missing marker counts).
+    public var needsUpdate: Bool {
+        guard isInitialized else { return false }
+        let marker = (try? String(contentsOf: markerURL, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return marker != RuntimeManager.wineRelease.version
+    }
+
+    /// Upgrades an existing prefix to the current Wine (`wineboot -u`).
+    public func update(log: @escaping @Sendable (String) -> Void) async throws {
+        log("Updating Wine prefix...")
+        let code = try await wine.run(["wineboot", "-u"], onOutput: log)
+        guard code == 0 else { throw RuntimeError.commandFailed("wineboot -u", code) }
+        try writeMarker()
     }
 
     public func apply(_ settings: Settings, log: @escaping @Sendable (String) -> Void) async throws {
