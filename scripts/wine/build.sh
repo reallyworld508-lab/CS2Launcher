@@ -492,8 +492,9 @@ step_smoke() {
   case "$out" in wine-*) ;; *) die "unexpected wine --version output: $out" ;; esac
 
   log "wineboot --init (timeout 300 s)"
-  if ! run_timeout 300 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDLLPATH="$PFX/lib/wine/x86_64-windows:$PFX/lib/wine/i386-windows:$PFX/lib/wine" WINEDEBUG=-all \
-       WINEDLLOVERRIDES="mscoree,mshtml=d" DYLD_FALLBACK_LIBRARY_PATH="$PFX/lib:/usr/lib" "$w" wineboot --init; then
+  if ! run_timeout 300 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDLLPATH="$PFX/lib/wine/x86_64-windows:$PFX/lib/wine/i386-windows:$PFX/lib/wine" WINEDEBUG=err+all,fixme-all \
+       WINEDLLOVERRIDES="mscoree,mshtml=d" DYLD_FALLBACK_LIBRARY_PATH="$PFX/lib:/usr/lib" "$w" wineboot --init > "$LOGS/wineboot.log" 2>&1; then
+    tail -n 60 "$LOGS/wineboot.log" || true
     smoke_env "$PFX/bin/wineserver" -k >/dev/null 2>&1 || true
     die "wineboot --init failed or timed out"
   fi
