@@ -484,7 +484,7 @@ step_smoke() {
   # a clean environment, as the launcher would give it (no Homebrew, no CX_* variables)
   smoke_env() {
     env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" \
-        WINEPREFIX="$pfx" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=d" \
+        WINEPREFIX="$pfx" WINEDLLPATH="$PFX/lib/wine/x86_64-windows:$PFX/lib/wine/i386-windows:$PFX/lib/wine" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml=d" \
         DYLD_FALLBACK_LIBRARY_PATH="$PFX/lib:/usr/lib" "$@"
   }
   mkdir -p "$tmp/home"
@@ -492,7 +492,7 @@ step_smoke() {
   case "$out" in wine-*) ;; *) die "unexpected wine --version output: $out" ;; esac
 
   log "wineboot --init (timeout 300 s)"
-  if ! run_timeout 300 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDEBUG=-all \
+  if ! run_timeout 300 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDLLPATH="$PFX/lib/wine/x86_64-windows:$PFX/lib/wine/i386-windows:$PFX/lib/wine" WINEDEBUG=-all \
        WINEDLLOVERRIDES="mscoree,mshtml=d" DYLD_FALLBACK_LIBRARY_PATH="$PFX/lib:/usr/lib" "$w" wineboot --init; then
     smoke_env "$PFX/bin/wineserver" -k >/dev/null 2>&1 || true
     die "wineboot --init failed or timed out"
@@ -502,12 +502,12 @@ step_smoke() {
   [ -f "$pfx/drive_c/windows/system32/kernel32.dll" ] || die "system32 not populated"
   [ -f "$pfx/drive_c/windows/syswow64/kernel32.dll" ] || die "syswow64 not populated (WoW64 prefix expected)"
 
-  out="$(run_timeout 120 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDEBUG=-all \
+  out="$(run_timeout 120 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDLLPATH="$PFX/lib/wine/x86_64-windows:$PFX/lib/wine/i386-windows:$PFX/lib/wine" WINEDEBUG=-all \
         DYLD_FALLBACK_LIBRARY_PATH="$PFX/lib:/usr/lib" "$w" cmd /c echo ok 2>&1 | tr -d '\r')" || true
   echo "wine cmd /c echo ok -> [$out]"
   printf '%s\n' "$out" | grep -qx 'ok' || die "cmd /c echo ok printed [$out]"
 
-  out="$(run_timeout 120 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDEBUG=-all \
+  out="$(run_timeout 120 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDLLPATH="$PFX/lib/wine/x86_64-windows:$PFX/lib/wine/i386-windows:$PFX/lib/wine" WINEDEBUG=-all \
         DYLD_FALLBACK_LIBRARY_PATH="$PFX/lib:/usr/lib" "$w" 'C:\windows\syswow64\cmd.exe' /c echo ok32 2>&1 | tr -d '\r')" || true
   echo "32-bit cmd -> [$out]"
   printf '%s\n' "$out" | grep -qx 'ok32' || die "32-bit (WoW64) cmd printed [$out]"
@@ -516,7 +516,7 @@ step_smoke() {
   local fake="$tmp/gptk"
   mkdir -p "$fake/wine/x86_64-windows" "$fake/wine/x86_64-unix" "$fake/external"
   : > "$fake/wine/x86_64-windows/d3d11.dll"; : > "$fake/wine/x86_64-unix/d3d11.so"; : > "$fake/external/libd3dshared.dylib"
-  out="$(run_timeout 120 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDEBUG=-all \
+  out="$(run_timeout 120 env -i HOME="$tmp/home" PATH="/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$tmp" WINEPREFIX="$pfx" WINEDLLPATH="$PFX/lib/wine/x86_64-windows:$PFX/lib/wine/i386-windows:$PFX/lib/wine" WINEDEBUG=-all \
         DYLD_FALLBACK_LIBRARY_PATH="$PFX/lib:/usr/lib" CX_GRAPHICS_BACKEND=d3dmetal CS2L_D3DMETAL_DIR="$fake" CS2L_COMPAT_DEBUG=1 \
         "$w" cmd /c echo shim 2>&1 | tr -d '\r')" || true
   echo "$out" | grep -q 'cs2l-compat: active backend: d3dmetal' || { echo "$out"; die "cs2l-compat shim did not activate d3dmetal"; }

@@ -228,8 +228,12 @@ Notes:
   D3DMetal is enabled"; do the same (only if the file exists).
 * `CX_ACTIVE_GRAPHICS_BACKEND` is set by the shim. Do not set it by hand unless the shim is
   bypassed; if both exist the shim's value wins.
-* No `WINELOADER`, `WINEDLLPATH`, `WINEWRAPPER` or `CX_ROOT` is needed (those belong to the Perl
-  wrapper; `CX_ROOT` is only used for the Dock icon). Do not set `WINEDLLOVERRIDES` for d3d11,
+* `WINEDLLPATH` is **required**: `<engine>/wine/lib/wine/x86_64-windows:<engine>/wine/lib/wine/i386-windows:<engine>/wine/lib/wine`
+  (the same value CrossOver's Perl wrapper sets). Without it the CrossOver loader fails with
+  `could not load kernel32.dll, status c0000135`. D3DMetal still wins because the shim uses
+  `prepend_dll_path`, which goes before `WINEDLLPATH`.
+* No `WINELOADER`, `WINEWRAPPER` or `CX_ROOT` is needed (those belong to the Perl wrapper;
+  `CX_ROOT` is only used for the Dock icon). Do not set `WINEDLLOVERRIDES` for d3d11,
   d3d12 or dxgi: the builtin lookup is what selects D3DMetal. To get Wine's own Direct3D back,
   set `CX_GRAPHICS_BACKEND=wined3d` (or leave it unset).
 * Metal HUD: `MTL_HUD_ENABLED=1`. MoltenVK (wined3d/vkd3d path, not D3DMetal): bundled copy,
