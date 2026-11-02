@@ -20,14 +20,63 @@ struct LiveBackend: LauncherBackend {
         self.throttler = BackgroundThrottler(runner: runner)
     }
 
+    /// The engine chosen in the settings (read on every call, so a change applies at once).
+    var engineKind: EngineKind { Settings.load(from: paths.settingsFile).engine }
+
+    private var freeEngine: FreeEngine { FreeEngine(root: paths.engine) }
     private var bottle: Bottle { Bottle(locator: locator, runner: runner) }
-    private var wine: WineRunner { WineRunner(locator: locator, bottle: bottle, runner: runner) }
+    private var wine: any WineRunning {
+        engineKind == .free ? FreeWineRunner(engine: freeEngine, runner: runner)
+                            : WineRunner(locator: locator, bottle: bottle, runner: runner)
+    }
+    private var layout: any SteamLayout { engineKind == .free ? freeEngine : bottle }
     private var steam: SteamInstaller { SteamInstaller(wine: wine, downloader: downloader, downloads: paths.downloads) }
     private var game: GameLauncher { GameLauncher(wine: wine) }
     private var migration: LegacyMigration { LegacyMigration(paths: paths, bottle: bottle) }
 
     func systemCheck() async -> SystemCheckResult {
         await SystemCheck(runner: runner).perform()
+    }
+
+    func isEngineInstalled() -> Bool { freeEngine.isEngineInstalled }
+    func isGPTKReady() -> Bool { freeEngine.isD3DMetalValid }
+    func isFreePrefixReady() -> Bool { freeEngine.isPrefixReady }
+    func detectedGPTKDmg() -> URL? { GPTKInstaller(runner: runner, engine: freeEngine).detectedDmg }
+
+    func installEngine(progress: @escaping @Sendable (Double) -> Void,
+                       log: @escaping @Sendable (String) -> Void) async throws {
+        try await FreeEngineInstaller(runner: runner, downloader: downloader, engine: freeEngine,
+                                      downloads: paths.downloads).install(progress: progress, log: log)
+    }
+
+    func installGPTK(dmg: URL?, log: @escaping @Sendable (String) -> Void) async throws {
+        try await GPTKInstaller(runner: runner, engine: freeEngine).install(dmg: dmg, log: log)
+    }
+
+    func createPrefix(log: @escaping @Sendable (String) -> Void) async throws {
+        try await FreePrefixManager(engine: freeEngine, runner: runner).create(log: log)
+    }
+
+    func applyRecommendedGraphics(settings: Settings, displaySize: (width: Int, height: Int)?,
+                                  log: @escaping @Sendable (String) -> Void) -> Int {
+        let size = settings.nativeAspect ? (displaySize ?? (settings.windowWidth, settings.windowHeight))
+                                         : (settings.windowWidth, settings.windowHeight)
+        return VideoConfig.apply(userdata: layout.steamUserdata, width: size.0, height: size.1,
+                                 nativeAspect: settings.nativeAspect, log: log).count
+    }
+
+    func ensureWebHelperPatched(log: @escaping @Sendable (String) -> Void) -> Bool {
+        guard engineKind == .free, let data = try? SteamWebHelperPatch.bundledWrapper() else { return false }
+        let patch = SteamWebHelperPatch(steamDirectory: layout.steamDirectory, wrapperData: data)
+        guard !patch.isApplied else { return false }
+        do {
+            let changed = try patch.apply()
+            if !changed.isEmpty { log("Установлена обёртка steamwebhelper (\(changed.count))") }
+            return !changed.isEmpty
+        } catch {
+            log("Не удалось установить обёртку steamwebhelper: \(error.localizedDescription)")
+            return false
+        }
     }
 
     func isCrossOverInstalled() -> Bool { locator.isInstalled }
@@ -42,7 +91,7 @@ struct LiveBackend: LauncherBackend {
         log("D3DMetal включён в бутылке «\(b.name)».")
     }
 
-    func isLegacyMigrationAvailable() -> Bool { migration.isAvailable }
+    func isLegacyMigrationAvailable() -> Bool { engineKind == .crossover && migration.isAvailable }
 
     func migrateLegacy(log: @escaping @Sendable (String) -> Void) async throws {
         try await migration.migrate(runner: runner, log: log)
@@ -53,9 +102,10 @@ struct LiveBackend: LauncherBackend {
     func installSteam(progress: @escaping @Sendable (Double) -> Void,
                       log: @escaping @Sendable (String) -> Void) async throws {
         try await steam.install(progress: progress, log: log)
+        _ = ensureWebHelperPatched(log: log)
     }
 
-    func cs2InstallState() -> CS2InstallState { SteamLibrary(bottle: bottle).cs2State() }
+    func cs2InstallState() -> CS2InstallState { SteamLibrary(layout: layout).cs2State() }
 
     func isSteamRunning() async -> Bool { await GameLauncher.isSteamRunning(runner: runner) }
 
@@ -63,12 +113,17 @@ struct LiveBackend: LauncherBackend {
 
     func applyPerformanceTweaks(settings: Settings, steamRunning: Bool,
                                 log: @escaping @Sendable (String) -> Void) {
-        PerformanceTweaks.apply(bottle: bottle, settings: settings, steamRunning: steamRunning, log: log)
+        if engineKind == .free {
+            PerformanceTweaks.apply(layout: freeEngine, settings: settings, steamRunning: steamRunning, log: log)
+        } else {
+            PerformanceTweaks.apply(bottle: bottle, settings: settings, steamRunning: steamRunning, log: log)
+        }
     }
 
     func launch(settings: Settings, launchGame: Bool,
                 log: @escaping @Sendable (String) -> Void) throws -> RunningProcess {
-        try game.launch(settings: settings, launchGame: launchGame, log: log)
+        _ = ensureWebHelperPatched(log: log)
+        return try game.launch(settings: settings, launchGame: launchGame, log: log)
     }
 
     func stopAll() async { await game.stop() }

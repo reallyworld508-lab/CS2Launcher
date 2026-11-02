@@ -1,7 +1,31 @@
 import Foundation
 
+/// Where Steam lives inside a Wine prefix (a CrossOver bottle or the free engine's prefix).
+public protocol SteamLayout: Sendable {
+    var driveC: URL { get }
+}
+
+public extension SteamLayout {
+    var steamDirectory: URL { driveC.appendingPathComponent("Program Files (x86)/Steam", isDirectory: true) }
+    var steamExe: URL { steamDirectory.appendingPathComponent("steam.exe") }
+    var steamUserdata: URL { steamDirectory.appendingPathComponent("userdata", isDirectory: true) }
+    var steamapps: URL { steamDirectory.appendingPathComponent("steamapps", isDirectory: true) }
+}
+
+/// A Wine that can run programs in one prefix; implemented for CrossOver and for the free engine.
+public protocol WineRunning: Sendable {
+    var steamLayout: any SteamLayout { get }
+    /// Extra flags for `steam.exe` that keep Steam from undoing the web helper wrapper (free engine only).
+    var steamFlags: [String] { get }
+    func run(_ args: [String], extraEnvironment: [String: String],
+             onOutput: @escaping @Sendable (String) -> Void) async throws -> Int32
+    func start(_ args: [String], extraEnvironment: [String: String],
+               onOutput: @escaping @Sendable (String) -> Void) throws -> RunningProcess
+    func killAll() async
+}
+
 /// Runs CrossOver's `wine` driver script inside one bottle.
-public struct WineRunner: Sendable {
+public struct WineRunner: Sendable, WineRunning {
     public let locator: CrossOverLocator
     public let bottle: Bottle
     public let runner: ProcessRunning
@@ -11,6 +35,9 @@ public struct WineRunner: Sendable {
         self.bottle = bottle
         self.runner = runner
     }
+
+    public var steamLayout: any SteamLayout { bottle }
+    public var steamFlags: [String] { [] }
 
     public var wineExecutable: URL { locator.wineScript }
     public var wineserverExecutable: URL { locator.wineserver }

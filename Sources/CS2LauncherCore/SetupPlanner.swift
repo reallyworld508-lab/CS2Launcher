@@ -1,7 +1,7 @@
 import Foundation
 
 public enum SetupStage: String, CaseIterable, Sendable {
-    case systemCheck, rosetta, crossOver, bottle, steam, openSteam, cs2
+    case systemCheck, rosetta, engine, gptk, prefix, crossOver, bottle, steam, openSteam, cs2
 }
 
 public struct SetupResult: Equatable, Sendable {
@@ -14,17 +14,27 @@ public struct SetupResult: Equatable, Sendable {
 /// Pure ordering/skip logic for "Install everything".
 public enum SetupPlanner {
     /// Stages the one-click setup performs, in order. CS2 itself is downloaded by Steam, not by us.
-    public static let automatic: [SetupStage] = [.systemCheck, .rosetta, .crossOver, .bottle, .steam, .openSteam]
+    /// `.gptk` is a user action (Apple's download); its stage stops the run until the toolkit is in place.
+    public static let automatic: [SetupStage] = automatic(for: .free)
+
+    public static func automatic(for engine: EngineKind) -> [SetupStage] {
+        switch engine {
+        case .free: [.systemCheck, .rosetta, .engine, .gptk, .prefix, .steam, .openSteam]
+        case .crossover: [.systemCheck, .rosetta, .crossOver, .bottle, .steam, .openSteam]
+        }
+    }
 
     /// Automatic stages still to do (already completed ones are skipped; order preserved).
     /// A retry after a failure is simply a fresh plan: finished stages drop out, the failed one comes first.
-    public static func plan(completed: Set<SetupStage>) -> [SetupStage] {
-        automatic.filter { !completed.contains($0) }
+    public static func plan(completed: Set<SetupStage>, engine: EngineKind = .free) -> [SetupStage] {
+        automatic(for: engine).filter { !completed.contains($0) }
     }
 
     /// Setup is complete when everything needed to play exists (the system check is advisory).
-    public static func isComplete(_ completed: Set<SetupStage>) -> Bool {
-        [SetupStage.crossOver, .bottle, .steam, .cs2].allSatisfy(completed.contains)
+    public static func isComplete(_ completed: Set<SetupStage>, engine: EngineKind = .free) -> Bool {
+        let needed: [SetupStage] = engine == .free ? [.engine, .gptk, .prefix, .steam, .cs2]
+                                                   : [.crossOver, .bottle, .steam, .cs2]
+        return needed.allSatisfy(completed.contains)
     }
 
     /// Overall 0...1 progress for step `index` (0-based) of `total` with the current step at `stepProgress`.

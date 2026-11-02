@@ -301,9 +301,10 @@ final class InstallerTests: XCTestCase {
     }
 
     func testPlannerOrderWithNewSteps() {
-        XCTAssertEqual(SetupPlanner.automatic, [.systemCheck, .rosetta, .crossOver, .bottle, .steam, .openSteam])
-        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .rosetta]), [.crossOver, .bottle, .steam, .openSteam])
-        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .crossOver]), [.rosetta, .bottle, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.automatic, [.systemCheck, .rosetta, .engine, .gptk, .prefix, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .rosetta]), [.engine, .gptk, .prefix, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .engine]), [.rosetta, .gptk, .prefix, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .crossOver], engine: .crossover), [.rosetta, .bottle, .steam, .openSteam])
     }
 
     func testBlockingChecksIgnoreRosetta() {

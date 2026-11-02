@@ -121,25 +121,29 @@ final class SteamLibraryTests: XCTestCase {
 
 final class SetupPlannerTests: XCTestCase {
     func testFreshPlan() {
-        XCTAssertEqual(SetupPlanner.plan(completed: []), [.systemCheck, .rosetta, .crossOver, .bottle, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.plan(completed: []), [.systemCheck, .rosetta, .engine, .gptk, .prefix, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.plan(completed: [], engine: .crossover), [.systemCheck, .rosetta, .crossOver, .bottle, .steam, .openSteam])
     }
 
     func testSkipsDone() {
-        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .rosetta, .crossOver]), [.bottle, .steam, .openSteam])
-        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .rosetta, .crossOver, .bottle, .steam, .openSteam]), [])
+        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .rosetta, .engine]), [.gptk, .prefix, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .rosetta, .crossOver], engine: .crossover), [.bottle, .steam, .openSteam])
+        XCTAssertEqual(SetupPlanner.plan(completed: [.systemCheck, .rosetta, .engine, .gptk, .prefix, .steam, .openSteam]), [])
         // CS2 never part of the plan
         XCTAssertFalse(SetupPlanner.plan(completed: []).contains(.cs2))
     }
 
     func testCompleteness() {
-        XCTAssertTrue(SetupPlanner.isComplete([.crossOver, .bottle, .steam, .cs2]))
-        XCTAssertFalse(SetupPlanner.isComplete([.crossOver, .bottle, .steam]))
+        XCTAssertTrue(SetupPlanner.isComplete([.engine, .gptk, .prefix, .steam, .cs2]))
+        XCTAssertFalse(SetupPlanner.isComplete([.engine, .prefix, .steam, .cs2]))
+        XCTAssertTrue(SetupPlanner.isComplete([.crossOver, .bottle, .steam, .cs2], engine: .crossover))
+        XCTAssertFalse(SetupPlanner.isComplete([.crossOver, .bottle, .steam], engine: .crossover))
     }
 
     func testStopsOnFirstFailureAndResumes() async {
         var ran: [SetupStage] = []
         var starts: [Int] = []
-        let plan = SetupPlanner.plan(completed: [.systemCheck, .rosetta])
+        let plan = SetupPlanner.plan(completed: [.systemCheck, .rosetta], engine: .crossover)
         let r = await SetupPlanner.execute(plan: plan, onStart: { i, _ in starts.append(i) }) { st in
             ran.append(st)
             return st != .bottle
@@ -150,7 +154,7 @@ final class SetupPlannerTests: XCTestCase {
         XCTAssertFalse(r.succeeded)
 
         // Retry: CrossOver is done now, the failed stage is first.
-        let retry = SetupPlanner.plan(completed: [.systemCheck, .rosetta, .crossOver])
+        let retry = SetupPlanner.plan(completed: [.systemCheck, .rosetta, .crossOver], engine: .crossover)
         XCTAssertEqual(retry.first, .bottle)
         var ran2: [SetupStage] = []
         let r2 = await SetupPlanner.execute(plan: retry) { ran2.append($0); return true }

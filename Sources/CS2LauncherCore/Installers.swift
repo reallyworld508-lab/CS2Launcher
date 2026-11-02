@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 public enum InstallerError: LocalizedError, Equatable {
     case rosettaFailed
@@ -8,6 +9,8 @@ public enum InstallerError: LocalizedError, Equatable {
     case wrongTeam(String?)
     case destinationExists(String)
     case moveFailed(String)
+    case checksumMismatch
+    case engineNotFoundInArchive
 
     public var errorDescription: String? {
         switch self {
@@ -21,6 +24,8 @@ public enum InstallerError: LocalizedError, Equatable {
             return "Скачанный CrossOver подписан не CodeWeavers (\(t ?? "без подписи")). Файл удалён, установка отменена."
         case .destinationExists(let p): return "По пути \(p) уже что-то есть. Лаунчер ничего не перезаписывает."
         case .moveFailed(let m): return "Не удалось установить CrossOver: \(m)"
+        case .checksumMismatch: return "Контрольная сумма движка не совпала. Файл удалён, установка отменена."
+        case .engineNotFoundInArchive: return "В скачанном архиве нет движка Wine. Файл удалён."
         }
     }
 }
@@ -164,5 +169,85 @@ public struct CrossOverInstaller: Sendable {
         }
         progress(1)
         log("CrossOver установлен.")
+    }
+}
+
+/// Downloads the free Wine engine (built from CrossOver sources, see docs/engine.md) into `Engine/wine`.
+public struct FreeEngineInstaller: Sendable {
+    public static let version = "26.3.0-4"
+    public static let downloadURL = URL(string:
+        "https://github.com/reallyworld508-lab/CS2Launcher/releases/download/wine-4/cs2l-wine-crossover-26.3.0-4-x86_64.tar.xz")!
+    public static let sha256 = "8f65c9787c131fb74ef9668d5ed29dbb312e7a8c65616d6859a3c00d6e9e4ef8"
+    public static let expectedBytes: Int64 = 80_000_000   // approximate, for the UI only
+    static let tar = URL(fileURLWithPath: "/usr/bin/tar")
+
+    let runner: ProcessRunning
+    let downloader: Downloading
+    let engine: FreeEngine
+    let downloads: URL
+    let url: URL
+    let expectedSHA256: String
+
+    public init(runner: ProcessRunning, downloader: Downloading, engine: FreeEngine, downloads: URL,
+                url: URL = FreeEngineInstaller.downloadURL, sha256: String = FreeEngineInstaller.sha256) {
+        self.runner = runner
+        self.downloader = downloader
+        self.engine = engine
+        self.downloads = downloads
+        self.url = url
+        self.expectedSHA256 = sha256.lowercased()
+    }
+
+    /// Lowercase hex SHA-256 of a file, read in chunks.
+    public static func sha256Hex(of file: URL) throws -> String {
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    public func install(progress: @escaping @Sendable (Double) -> Void,
+                        log: @escaping @Sendable (String) -> Void) async throws {
+        if engine.isEngineInstalled {
+            log("Движок Wine уже установлен, пропускаю.")
+            progress(1)
+            return
+        }
+        let fm = FileManager.default
+        try fm.createDirectory(at: downloads, withIntermediateDirectories: true)
+        try fm.createDirectory(at: engine.root, withIntermediateDirectories: true)
+        let archive = downloads.appendingPathComponent(url.lastPathComponent)
+        let staging = engine.root.appendingPathComponent("wine-extract", isDirectory: true)
+        try? fm.removeItem(at: staging)
+        defer {
+            try? fm.removeItem(at: archive)
+            try? fm.removeItem(at: staging)
+        }
+        progress(0)
+        log("Загрузка движка Wine \(Self.version) (~80 МБ)…")
+        try await downloader.download(from: url, to: archive) { progress(max(0, min(1, $0)) * 0.8) }
+        progress(0.8)
+        log("Проверка контрольной суммы…")
+        guard try Self.sha256Hex(of: archive) == expectedSHA256 else { throw InstallerError.checksumMismatch }
+        progress(0.85)
+        log("Распаковка…")
+        try fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        let code = try await runner.run(executable: Self.tar, arguments: ["-xJf", archive.path, "-C", staging.path],
+                                        environment: [:], currentDirectory: nil, onOutput: log)
+        guard code == 0 else { throw InstallerError.extractFailed(code) }
+        // The archive holds LICENSE files, BUILDINFO and the `wine/` tree; only `wine/` is the engine.
+        let extracted = staging.appendingPathComponent("wine", isDirectory: true)
+        guard fm.fileExists(atPath: extracted.appendingPathComponent("bin/wine").path) else {
+            throw InstallerError.engineNotFoundInArchive
+        }
+        do {
+            try? fm.removeItem(at: engine.wineDirectory)
+            try fm.moveItem(at: extracted, to: engine.wineDirectory)
+        } catch {
+            throw InstallerError.moveFailed(error.localizedDescription)
+        }
+        progress(1)
+        log("Движок Wine установлен.")
     }
 }

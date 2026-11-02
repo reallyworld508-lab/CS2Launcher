@@ -20,9 +20,9 @@ struct OnboardingView: View {
                     .padding(.bottom, 12)
                 }
                 installAllPanel
-                ForEach(SetupStep.allCases) { step in
+                ForEach(state.steps) { step in
                     StepRow(step: step)
-                    if step != SetupStep.allCases.last { Divider() }
+                    if step != state.steps.last { Divider() }
                 }
             }
             .padding(24)
@@ -49,7 +49,9 @@ extension OnboardingView {
                     .controlSize(.large)
                     .disabled(state.isInstallingAll || state.isBusy)
                     if !state.isInstallingAll && state.setupFailure == nil {
-                        Text("Rosetta 2, CrossOver (~370 МБ с codeweavers.com), бутылка, Steam — автоматически. Первый запуск Steam занимает около 3 минут.")
+                        Text(state.engineKind == .free
+                             ? "Rosetta 2, движок Wine (~80 МБ), префикс, Steam — автоматически. D3DMetal нужно скачать у Apple самому. Первый запуск Steam занимает около 3 минут."
+                             : "Rosetta 2, CrossOver (~370 МБ с codeweavers.com), бутылка, Steam — автоматически. Первый запуск Steam занимает около 3 минут.")
                             .font(.callout).foregroundStyle(.secondary)
                     }
                 }
@@ -100,6 +102,9 @@ private struct StepRow: View {
 
     @ViewBuilder private func detail(_ s: StepStatus) -> some View {
         switch s {
+        case .running(let p) where step == .engine:
+            Text("Загрузка: \(Int(((p ?? 0) * 100).rounded()))%").font(.caption).foregroundStyle(.secondary)
+            ProgressView(value: p ?? 0).frame(maxWidth: 260)
         case .running(let p) where step == .cs2:
             Text("Скачивается: \(Int(((p ?? 0) * 100).rounded()))%").font(.caption).foregroundStyle(.secondary)
             ProgressView(value: p ?? 0).frame(maxWidth: 260)
@@ -135,6 +140,26 @@ private struct StepRow: View {
                     }
                     Button(failed(s) ? "Повторить" : "Установить Rosetta") { state.installRosetta() }
                         .buttonStyle(.borderedProminent)
+                        .disabled(busy || !unlocked)
+                }
+            case .engine:
+                if !s.isDone {
+                    Button(failed(s) ? "Повторить" : "Установить движок") { state.installEngine() }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(busy || !unlocked)
+                }
+            case .gptk:
+                if !s.isDone {
+                    Button("Открыть страницу Apple") { state.openApplePage() }
+                        .buttonStyle(.borderedProminent)
+                    Button("Выбрать .dmg") { state.pickGPTKDmg() }
+                        .disabled(busy || !unlocked)
+                    Button("Проверить снова") { state.installGPTK() }
+                        .disabled(busy || !unlocked)
+                }
+            case .prefix:
+                if !s.isDone {
+                    Button(failed(s) ? "Повторить" : "Создать") { state.createPrefix() }
                         .disabled(busy || !unlocked)
                 }
             case .crossOver:

@@ -61,7 +61,7 @@ public struct CrossOverLocator: Sendable {
 }
 
 /// A CrossOver bottle (a Wine prefix managed by CrossOver).
-public struct Bottle: Sendable {
+public struct Bottle: Sendable, SteamLayout {
     public static let defaultName = "CS2"
     public static var defaultDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -86,10 +86,6 @@ public struct Bottle: Sendable {
     public var path: URL { directory.appendingPathComponent(name, isDirectory: true) }
     public var configURL: URL { path.appendingPathComponent("cxbottle.conf") }
     public var driveC: URL { path.appendingPathComponent("drive_c", isDirectory: true) }
-    public var steamDirectory: URL { driveC.appendingPathComponent("Program Files (x86)/Steam", isDirectory: true) }
-    public var steamExe: URL { steamDirectory.appendingPathComponent("steam.exe") }
-    public var steamUserdata: URL { steamDirectory.appendingPathComponent("userdata", isDirectory: true) }
-    public var steamapps: URL { steamDirectory.appendingPathComponent("steamapps", isDirectory: true) }
 
     public var exists: Bool { FileManager.default.fileExists(atPath: configURL.path) }
 

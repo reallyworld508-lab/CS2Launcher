@@ -136,6 +136,16 @@ public enum PerformanceTweaks {
     }
 }
 
+extension PerformanceTweaks {
+    /// Free engine: the environment is passed per launch, so only the Steam overlay switch is written.
+    public static func apply(layout: any SteamLayout, settings: Settings, steamRunning: Bool,
+                             log: (String) -> Void = { _ in }) {
+        guard !steamRunning else { return }
+        SteamOverlay(userdata: layout.steamUserdata)
+            .apply(performanceMode: settings.performanceMode, steamRunning: false, log: log)
+    }
+}
+
 /// How often the launcher looks at Steam/CS2 state.
 public enum PollCadence {
     public struct Plan: Equatable, Sendable {

@@ -3,13 +3,24 @@ import Observation
 import CS2LauncherCore
 
 enum SetupStep: String, CaseIterable, Identifiable {
-    case systemCheck, rosetta, crossOver, bottle, steam, cs2
+    case systemCheck, rosetta, engine, gptk, prefix, crossOver, bottle, steam, cs2
     var id: String { rawValue }
+
+    /// Steps shown for an engine, in order.
+    static func steps(for engine: EngineKind) -> [SetupStep] {
+        switch engine {
+        case .free: [.systemCheck, .rosetta, .engine, .gptk, .prefix, .steam, .cs2]
+        case .crossover: [.systemCheck, .rosetta, .crossOver, .bottle, .steam, .cs2]
+        }
+    }
 
     var title: String {
         switch self {
         case .systemCheck: "Проверка системы"
         case .rosetta: "Rosetta 2"
+        case .engine: "Движок Wine"
+        case .gptk: "D3DMetal (Apple GPTK)"
+        case .prefix: "Префикс Wine"
         case .crossOver: "CrossOver"
         case .bottle: "Бутылка"
         case .steam: "Steam"
@@ -20,6 +31,9 @@ enum SetupStep: String, CaseIterable, Identifiable {
         switch self {
         case .systemCheck: "Apple Silicon, версия macOS и свободное место (от 45 ГБ)."
         case .rosetta: "Слой совместимости Apple для Windows-программ. Устанавливается автоматически."
+        case .engine: "Бесплатный движок Wine на исходниках CrossOver (~80 МБ). Лаунчер скачает его и проверит контрольную сумму."
+        case .gptk: "D3DMetal берётся из Game Porting Toolkit от Apple: скачайте Game_Porting_Toolkit*.dmg на странице Apple (нужен Apple ID) в «Загрузки» — лаунчер найдёт его сам — или выберите файл вручную."
+        case .prefix: "Создание префикса Wine и настройка ввода. Занимает около минуты."
         case .crossOver: "Лаунчер сам скачает и установит CrossOver (D3DMetal + DirectX 11) с codeweavers.com. CrossOver — платная программа: 14 дней бесплатно, затем нужна лицензия на codeweavers.com"
         case .bottle: "Создание бутылки CrossOver «CS2» и включение D3DMetal. Если CrossOver покажет окно пробной версии — нажмите «Try Now»."
         case .steam: "Загрузка и установка Windows-клиента Steam в бутылку. Первый запуск может занять несколько минут."
@@ -30,6 +44,9 @@ enum SetupStep: String, CaseIterable, Identifiable {
         switch self {
         case .systemCheck: .systemCheck
         case .rosetta: .rosetta
+        case .engine: .engine
+        case .gptk: .gptk
+        case .prefix: .prefix
         case .crossOver: .crossOver
         case .bottle: .bottle
         case .steam: .steam
@@ -40,6 +57,9 @@ enum SetupStep: String, CaseIterable, Identifiable {
         switch self {
         case .systemCheck: "checkmark.shield"
         case .rosetta: "cpu"
+        case .engine: "wineglass"
+        case .gptk: "memorychip"
+        case .prefix: "shippingbox"
         case .crossOver: "wineglass"
         case .bottle: "shippingbox"
         case .steam: "gamecontroller"
@@ -63,6 +83,9 @@ extension SetupStage {
         switch self {
         case .systemCheck: "Проверка системы"
         case .rosetta: "Rosetta 2"
+        case .engine: "Движок Wine"
+        case .gptk: "D3DMetal"
+        case .prefix: "Префикс Wine"
         case .crossOver: "CrossOver"
         case .bottle: "Подготовка бутылки"
         case .steam: "Установка Steam"
@@ -74,6 +97,9 @@ extension SetupStage {
         switch self {
         case .systemCheck: .systemCheck
         case .rosetta: .rosetta
+        case .engine: .engine
+        case .gptk: .gptk
+        case .prefix: .prefix
         case .crossOver: .crossOver
         case .bottle: .bottle
         case .steam: .steam
@@ -98,6 +124,7 @@ final class AppState {
             if settings.performanceMode != oldValue.performanceMode || settings.metalHUD != oldValue.metalHUD {
                 backend.applyPerformanceTweaks(settings: settings, steamRunning: isSteamRunning, log: makeLogger())
             }
+            if settings.engine != oldValue.engine { refresh() }
             if settings.throttleBackgroundApps != oldValue.throttleBackgroundApps, isGameRunning {
                 Task { @MainActor in await applyThrottle() }
             }
@@ -173,29 +200,34 @@ final class AppState {
 
     // MARK: Derived
 
+    var engineKind: EngineKind { settings.engine }
+
+    /// Setup steps of the chosen engine, in order.
+    var steps: [SetupStep] { SetupStep.steps(for: engineKind) }
+
     func status(_ step: SetupStep) -> StepStatus { stepStatus[step] ?? .pending }
 
     /// Something is in progress (excluding the CS2 download, which Steam does on its own).
     var isBusy: Bool {
         isLaunching || isInstallingAll
-            || SetupStep.allCases.contains { $0 != .cs2 && status($0).isRunning }
+            || steps.contains { $0 != .cs2 && status($0).isRunning }
     }
 
     func completedStages() -> Set<SetupStage> {
-        var c = Set(SetupStep.allCases.filter { status($0).isDone }.map(\.stage))
+        var c = Set(steps.filter { status($0).isDone }.map(\.stage))
         if isSteamRunning || c.contains(.cs2) { c.insert(.openSteam) }
         return c
     }
 
     /// Everything needed to play exists. (The system check is advisory, so a later launch skips straight to MainView.)
-    var isSetupComplete: Bool { SetupPlanner.isComplete(completedStages()) }
+    var isSetupComplete: Bool { SetupPlanner.isComplete(completedStages(), engine: engineKind) }
 
     /// True when "Установить всё" has something to do.
-    var hasPendingAutomaticSteps: Bool { !SetupPlanner.plan(completed: completedStages()).isEmpty }
+    var hasPendingAutomaticSteps: Bool { !SetupPlanner.plan(completed: completedStages(), engine: engineKind).isEmpty }
 
     /// A step can be started only when all previous steps are done.
     func isUnlocked(_ step: SetupStep) -> Bool {
-        for s in SetupStep.allCases {
+        for s in steps {
             if s == step { return true }
             if !status(s).isDone { return false }
         }
@@ -275,9 +307,16 @@ final class AppState {
         let version = backend.crossOverVersion()
         if version != crossOverVersion { crossOverVersion = version }
         derive(.rosetta, rosettaVerified || systemCheckResult?.rosettaInstalled == true || status(.steam).isDone)
-        derive(.crossOver, backend.isCrossOverInstalled())
-        derive(.bottle, backend.isBottleReady())
+        if engineKind == .free {
+            derive(.engine, backend.isEngineInstalled())
+            derive(.gptk, backend.isGPTKReady())
+            derive(.prefix, backend.isFreePrefixReady())
+        } else {
+            derive(.crossOver, backend.isCrossOverInstalled())
+            derive(.bottle, backend.isBottleReady())
+        }
         derive(.steam, backend.isSteamInstalled())
+        if engineKind == .free && status(.steam).isDone { _ = backend.ensureWebHelperPatched(log: makeLogger()) }
         let legacy = backend.isLegacyMigrationAvailable()
         if legacy != legacyMigrationAvailable { legacyMigrationAvailable = legacy }
         let cs2 = backend.cs2InstallState()
@@ -313,7 +352,7 @@ final class AppState {
     /// Runs every automatic step that is not done yet. Calling it again after a failure resumes from the failed step.
     func installAll() {
         guard !isInstallingAll, !isLaunching,
-              !SetupStep.allCases.contains(where: { $0 != .cs2 && status($0).isRunning }) else { return }
+              !steps.contains(where: { $0 != .cs2 && status($0).isRunning }) else { return }
         isInstallingAll = true
         setupFailure = nil
         setupTask = Task { @MainActor in
@@ -326,7 +365,7 @@ final class AppState {
     private func runInstallAll() async {
         refresh()
         await refreshSteamRunning()
-        let plan = SetupPlanner.plan(completed: completedStages())
+        let plan = SetupPlanner.plan(completed: completedStages(), engine: engineKind)
         setupPlan = plan
         setupIndex = 0
         guard !plan.isEmpty else { return }
@@ -355,6 +394,12 @@ final class AppState {
             return status(.systemCheck).isDone
         case .rosetta:
             return await performRosettaInstall()
+        case .engine:
+            return await performEngineInstall()
+        case .gptk:
+            return await performGPTKInstall(dmg: nil)
+        case .prefix:
+            return await performPrefixCreate()
         case .crossOver:
             return await performCrossOverInstall()
         case .bottle:
@@ -430,6 +475,78 @@ final class AppState {
     }
 
     func installCrossOver() { Task { _ = await performCrossOverInstall() } }
+
+    // MARK: Free engine
+
+    static let applePageURL = GPTKInstaller.downloadPage
+
+    private func performEngineInstall() async -> Bool {
+        if backend.isEngineInstalled() { set(.engine, .done); return true }
+        return await performStep(.engine, "Установка движка Wine") { [backend] progress, log in
+            try await backend.installEngine(progress: progress, log: log)
+        }
+    }
+
+    func installEngine() { Task { _ = await performEngineInstall() } }
+
+    /// Copies D3DMetal out of the toolkit image: `dmg` if given, otherwise the newest one in Downloads.
+    /// Without an image the step stops with a hint and waits for the user.
+    private func performGPTKInstall(dmg: URL?) async -> Bool {
+        if backend.isGPTKReady() { set(.gptk, .done); return true }
+        guard let image = dmg ?? backend.detectedGPTKDmg() else {
+            let msg = EngineError.gptkNotFound.localizedDescription
+            set(.gptk, .failed(msg))
+            log("✘ D3DMetal: \(msg)")
+            setupFailure = SetupFailure(stage: .gptk, message: msg)
+            return false
+        }
+        return await performStep(.gptk, "Установка D3DMetal") { [backend] _, log in
+            try await backend.installGPTK(dmg: image, log: log)
+        }
+    }
+
+    func installGPTK() { Task { _ = await performGPTKInstall(dmg: nil) } }
+
+    func openApplePage() { NSWorkspace.shared.open(Self.applePageURL) }
+
+    func pickGPTKDmg() {
+        let panel = NSOpenPanel()
+        panel.title = "Game Porting Toolkit"
+        panel.message = "Выберите Game_Porting_Toolkit*.dmg"
+        panel.allowedContentTypes = [.diskImage]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        Task { _ = await performGPTKInstall(dmg: url) }
+    }
+
+    private func performPrefixCreate() async -> Bool {
+        guard backend.isEngineInstalled() else { return await performEngineInstall() }
+        return await performStep(.prefix, "Создание префикса") { [backend] _, log in
+            try await backend.createPrefix(log: log)
+        }
+    }
+
+    func createPrefix() { Task { _ = await performPrefixCreate() } }
+
+    /// Size of the main display in points (for the "native 16:10" mode).
+    private var displaySize: (width: Int, height: Int)? {
+        NSScreen.main.map { (Int($0.frame.width), Int($0.frame.height)) }
+    }
+
+    /// Writes the recommended CS2 video settings. Needs a Steam account folder, i.e. a finished first login.
+    @discardableResult
+    func applyRecommendedGraphics() -> Bool {
+        let n = backend.applyRecommendedGraphics(settings: settings, displaySize: displaySize, log: makeLogger())
+        if n > 0 {
+            settings.recommendedGraphicsApplied = true
+            log("Рекомендуемая графика записана (\(settings.nativeAspect ? "родное" : "\(settings.windowWidth)×\(settings.windowHeight)"))")
+        } else {
+            log("Рекомендуемая графика: аккаунт Steam ещё не найден, повторю при следующем запуске")
+        }
+        return n > 0
+    }
 
     func copyToPasteboard(_ text: String) {
         NSPasteboard.general.clearContents()
@@ -531,6 +648,7 @@ final class AppState {
         await refreshSteamRunning()
         statusText = game ? "Запуск игры…" : "Запуск Steam…"
         backend.applyPerformanceTweaks(settings: s, steamRunning: isSteamRunning, log: logger)
+        if game && engineKind == .free && !settings.recommendedGraphicsApplied { applyRecommendedGraphics() }
         let p = try backend.launch(settings: s, launchGame: game, log: logger)
         if process?.isRunning != true { process = p }
         isSteamRunning = true

@@ -10,7 +10,8 @@ func makeTempDir() -> URL {
 final class SettingsTests: XCTestCase {
     func testDefaults() {
         let s = Settings()
-        XCTAssertEqual(s.gameArgs, "-novid")
+        XCTAssertEqual(s.gameArgs, "-novid -windowed -noborder -w 1024 -h 768")
+        XCTAssertEqual(s.engine, .free)
         XCTAssertEqual(s.steamArgs, "")
         XCTAssertFalse(s.metalHUD)
         XCTAssertNil(s.fpsCap)
@@ -26,7 +27,7 @@ final class SettingsTests: XCTestCase {
         try Data(#"{"metalHUD": true}"#.utf8).write(to: url)
         let s = Settings.load(from: url)
         XCTAssertTrue(s.metalHUD)
-        XCTAssertEqual(s.gameArgs, "-novid")
+        XCTAssertEqual(s.gameArgs, Settings.defaultGameArgs)
     }
     func testOldKeysIgnored() throws {
         let url = makeTempDir().appendingPathComponent("s.json")

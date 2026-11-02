@@ -2,12 +2,12 @@ import Foundation
 
 public struct GameLauncher: Sendable {
     public static let appID = 730
-    let wine: WineRunner
+    let wine: any WineRunning
 
-    public init(wine: WineRunner) { self.wine = wine }
+    public init(wine: any WineRunning) { self.wine = wine }
 
     public var cs2Executable: URL {
-        wine.bottle.steamapps.appendingPathComponent(
+        wine.steamLayout.steamapps.appendingPathComponent(
             "common/Counter-Strike Global Offensive/game/bin/win64/cs2.exe")
     }
 
@@ -38,28 +38,43 @@ public struct GameLauncher: Sendable {
         return result
     }
 
-    public static func steamArguments(steamExe: URL, settings: Settings, launchGame: Bool) -> [String] {
-        var args = [steamExe.path] + splitArguments(settings.steamArgs)
+    /// `gameArgs` with the window size from the settings: any `-w/-h` in the text is replaced, and nothing is added
+    /// in native mode (the game then uses the display's size).
+    public static func gameArguments(settings: Settings) -> [String] {
+        var out: [String] = []
+        var tokens = splitArguments(settings.gameArgs)[...]
+        while let t = tokens.popFirst() {
+            if t == "-w" || t == "-width" || t == "-h" || t == "-height" { _ = tokens.popFirst(); continue }
+            out.append(t)
+        }
+        if !settings.nativeAspect { out += ["-w", String(settings.windowWidth), "-h", String(settings.windowHeight)] }
+        return out
+    }
+
+    public static func steamArguments(steamExe: URL, settings: Settings, launchGame: Bool,
+                                      engineFlags: [String] = []) -> [String] {
+        var args = [steamExe.path] + engineFlags + splitArguments(settings.steamArgs)
         if launchGame {
-            args += ["-applaunch", String(appID)] + splitArguments(settings.gameArgs)
+            args += ["-applaunch", String(appID)] + gameArguments(settings: settings)
             if let cap = settings.fpsCap, cap > 0 { args += ["+fps_max", "\(cap)"] }
         }
         return args
     }
 
-    /// D3DMetal comes from the bottle's cxbottle.conf; only the HUD is a per-launch switch.
+    /// D3DMetal comes from the bottle's cxbottle.conf (or the engine environment); only the HUD is a per-launch switch.
     public static func environment(for settings: Settings) -> [String: String] {
         settings.metalHUD ? ["MTL_HUD_ENABLED": "1"] : [:]
     }
 
     public func launch(settings: Settings, launchGame: Bool,
                        log: @escaping @Sendable (String) -> Void) throws -> RunningProcess {
-        guard FileManager.default.fileExists(atPath: wine.bottle.steamExe.path) else {
+        guard FileManager.default.fileExists(atPath: wine.steamLayout.steamExe.path) else {
             throw LauncherError.steamNotInstalled
         }
         log(launchGame ? "Запуск Steam и Counter-Strike 2…" : "Запуск Steam…")
         return try wine.start(
-            Self.steamArguments(steamExe: wine.bottle.steamExe, settings: settings, launchGame: launchGame),
+            Self.steamArguments(steamExe: wine.steamLayout.steamExe, settings: settings, launchGame: launchGame,
+                                engineFlags: wine.steamFlags),
             extraEnvironment: Self.environment(for: settings), onOutput: log)
     }
 

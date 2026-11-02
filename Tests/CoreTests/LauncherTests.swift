@@ -65,12 +65,13 @@ final class LauncherTests: XCTestCase {
     func testSteamArgumentsWithGameAndFps() {
         var s = Settings(); s.fpsCap = 144
         XCTAssertEqual(GameLauncher.steamArguments(steamExe: steamExe, settings: s, launchGame: true),
-                       [steamExe.path, "-applaunch", "730", "-novid", "+fps_max", "144"])
+                       [steamExe.path, "-applaunch", "730", "-novid", "-windowed", "-noborder", "-w", "1024", "-h", "768",
+                        "+fps_max", "144"])
     }
     func testNoRendererOrVerifyFlagsForced() {
         var s = Settings(); s.gameArgs = ""
         let a = GameLauncher.steamArguments(steamExe: steamExe, settings: s, launchGame: true)
-        XCTAssertEqual(a, [steamExe.path, "-applaunch", "730"])
+        XCTAssertEqual(a, [steamExe.path, "-applaunch", "730", "-w", "1024", "-h", "768"])
         XCTAssertFalse(a.contains("-vulkan"))
         XCTAssertFalse(a.contains("-noverifyfiles"))
         XCTAssertFalse(GameLauncher.steamArguments(steamExe: steamExe, settings: Settings(), launchGame: true).contains("-vulkan"))
@@ -104,7 +105,7 @@ final class LauncherTests: XCTestCase {
         _ = try GameLauncher(wine: wine).launch(settings: st, launchGame: true, log: { _ in })
         XCTAssertEqual(mock.calls.count, 1)
         XCTAssertEqual(mock.calls[0].arguments,
-                       ["--bottle", "CS2", "--no-wait", bottle.steamExe.path, "-applaunch", "730", "-novid"])
+                       ["--bottle", "CS2", "--no-wait", bottle.steamExe.path, "-applaunch", "730", "-novid", "-windowed", "-noborder", "-w", "1024", "-h", "768"])
         XCTAssertEqual(mock.calls[0].environment["MTL_HUD_ENABLED"], "1")
     }
 

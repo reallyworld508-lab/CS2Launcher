@@ -4,6 +4,19 @@ import CS2LauncherCore
 protocol LauncherBackend: Sendable {
     var paths: Paths { get }
     func systemCheck() async -> SystemCheckResult
+    var engineKind: EngineKind { get }
+    func isEngineInstalled() -> Bool
+    func isGPTKReady() -> Bool
+    func isFreePrefixReady() -> Bool
+    func detectedGPTKDmg() -> URL?
+    func installEngine(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws
+    func installGPTK(dmg: URL?, log: @escaping @Sendable (String) -> Void) async throws
+    func createPrefix(log: @escaping @Sendable (String) -> Void) async throws
+    /// Writes the recommended `cs2_video.txt` values. Returns how many account files were written.
+    func applyRecommendedGraphics(settings: Settings, displaySize: (width: Int, height: Int)?,
+                                  log: @escaping @Sendable (String) -> Void) -> Int
+    /// Puts the Steam web helper wrapper in place (free engine). Returns true when something changed.
+    func ensureWebHelperPatched(log: @escaping @Sendable (String) -> Void) -> Bool
     func isCrossOverInstalled() -> Bool
     func crossOverVersion() -> String?
     func isBottleReady() -> Bool
@@ -43,6 +56,7 @@ final class PreviewBackend: LauncherBackend, @unchecked Sendable {
     let paths: Paths
     private let lock = NSLock()
     private var crossOver = true, bottle = false, steam = false
+    private var engine = false, gptk = false, prefix = false
     private var cs2Start: Date?
     private var steamProc: FakeRunningProcess?
 
@@ -60,6 +74,29 @@ final class PreviewBackend: LauncherBackend, @unchecked Sendable {
         return SystemCheckResult(rosettaInstalled: true, macOSVersion: "26.0.0", macOSSupported: true,
                                  freeDiskBytes: 200 * 1024 * 1024 * 1024, enoughDisk: true, isAppleSilicon: true)
     }
+    var engineKind: EngineKind { .free }
+    func isEngineInstalled() -> Bool { get { engine } }
+    func isGPTKReady() -> Bool { get { gptk } }
+    func isFreePrefixReady() -> Bool { get { prefix } }
+    func detectedGPTKDmg() -> URL? { nil }
+    func installEngine(progress: @escaping @Sendable (Double) -> Void, log: @escaping @Sendable (String) -> Void) async throws {
+        log("[preview] движок Wine")
+        for i in 1...10 { await nap(100); progress(Double(i) / 10) }
+        set { engine = true }
+    }
+    func installGPTK(dmg: URL?, log: @escaping @Sendable (String) -> Void) async throws {
+        log("[preview] D3DMetal")
+        await nap(500)
+        set { gptk = true }
+    }
+    func createPrefix(log: @escaping @Sendable (String) -> Void) async throws {
+        log("[preview] wineboot --init")
+        await nap(1000)
+        set { prefix = true }
+    }
+    func applyRecommendedGraphics(settings: Settings, displaySize: (width: Int, height: Int)?,
+                                  log: @escaping @Sendable (String) -> Void) -> Int { 0 }
+    func ensureWebHelperPatched(log: @escaping @Sendable (String) -> Void) -> Bool { false }
     func isCrossOverInstalled() -> Bool { get { crossOver } }
     func crossOverVersion() -> String? { get { crossOver } ? "26.3.0" : nil }
     func isBottleReady() -> Bool { get { bottle } }

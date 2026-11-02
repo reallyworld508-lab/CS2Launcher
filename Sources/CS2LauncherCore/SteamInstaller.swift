@@ -17,19 +17,19 @@ public enum LauncherError: LocalizedError, Equatable {
 public struct SteamInstaller: Sendable {
     public static let installerURL = URL(string: "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe")!
 
-    let wine: WineRunner
+    let wine: any WineRunning
     let downloader: Downloading
     let downloads: URL
     var pollInterval: Duration = .seconds(2)
     var pollTimeout: Duration = .seconds(360)   // the first run of a new bottle registers DLLs for minutes
 
-    public init(wine: WineRunner, downloader: Downloading, downloads: URL) {
+    public init(wine: any WineRunning, downloader: Downloading, downloads: URL) {
         self.wine = wine
         self.downloader = downloader
         self.downloads = downloads
     }
 
-    init(wine: WineRunner, downloader: Downloading, downloads: URL, pollInterval: Duration, pollTimeout: Duration) {
+    init(wine: any WineRunning, downloader: Downloading, downloads: URL, pollInterval: Duration, pollTimeout: Duration) {
         self.wine = wine
         self.downloader = downloader
         self.downloads = downloads
@@ -38,7 +38,7 @@ public struct SteamInstaller: Sendable {
     }
 
     public var isInstalled: Bool {
-        FileManager.default.fileExists(atPath: wine.bottle.steamExe.path)
+        FileManager.default.fileExists(atPath: wine.steamLayout.steamExe.path)
     }
 
     public func install(progress: @escaping @Sendable (Double) -> Void,
@@ -53,7 +53,7 @@ public struct SteamInstaller: Sendable {
         progress(0.5)
         log("Download finished. Running the Steam installer silently...")
         progress(0.6)
-        let code = try await wine.run([installer.path, "/S"], onOutput: log)
+        let code = try await wine.run([installer.path, "/S"], extraEnvironment: [:], onOutput: log)
         guard code == 0 else {
             log("The Steam installer exited with code \(code).")
             throw LauncherError.installerFailed(code)

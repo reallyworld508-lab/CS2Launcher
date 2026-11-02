@@ -267,6 +267,12 @@ download it on the user's behalf beyond what that license allows. The engine con
   `kernelbase.dll` built with llvm-mingw broke Steam's login, with gcc it worked.
 * **32-bit.** `wine` handles 32-bit programs through WoW64; the 32-bit Direct3D path is Wine's
   own (no D3DMetal). `ac_cv_func_pipe2=no` keeps binaries from a new SDK loadable on older macOS.
+* **Windows "not on screen" while testing.** Wine windows (and those of any Cocoa app started
+  from a non-GUI parent such as a script or an agent shell) are ordered in on the first desktop
+  Space, not on the Space that is active. If the active Space is another app's full-screen
+  Space, `kCGWindowIsOnscreen` is 0 and nothing is visible, although the window is complete
+  (`screencapture -l <window id>` captures it). This is not an engine defect: CrossOver's own
+  `wineloader` behaves the same. Verify from a regular desktop Space.
 * **Reproducibility.** Homebrew versions are recorded in `BUILDINFO` but not pinned.
 
 ## 4. Credits and licenses
