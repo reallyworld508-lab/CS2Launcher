@@ -18,8 +18,8 @@ public struct SystemCheckResult: Equatable, Sendable {
         self.isAppleSilicon = isAppleSilicon
     }
 
-    /// Checks that Rosetta's own installer cannot fix.
-    public var blockingPassed: Bool { macOSSupported && enoughDisk && isAppleSilicon }
+    /// Checks that Rosetta's own installer cannot fix. Low disk space only warns: CS2 may already be installed.
+    public var blockingPassed: Bool { macOSSupported && isAppleSilicon }
 
     public var allPassed: Bool { rosettaInstalled && macOSSupported && enoughDisk && isAppleSilicon }
 }

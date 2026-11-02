@@ -428,6 +428,7 @@ final class AppState {
         let r = await backend.systemCheck()
         systemCheckResult = r
         log("Проверка системы: macOS \(r.macOSVersion), Rosetta \(r.rosettaInstalled ? "да" : "нет"), свободно \(r.freeDiskBytes / 1_073_741_824) ГБ")
+        if !r.enoughDisk { log("Внимание: \(Self.describe(r)); для установки CS2 нужно от 45 ГБ") }
         set(.systemCheck, r.blockingPassed ? .done : .failed(Self.describe(r)))
     }
 
