@@ -22,6 +22,10 @@ public struct SteamInstaller: Sendable {
     let downloads: URL
     var pollInterval: Duration = .seconds(2)
     var pollTimeout: Duration = .seconds(360)   // the first run of a new bottle registers DLLs for minutes
+    /// Free engine: let Steam download its client once and stop it, so the first real launch starts a finished client.
+    public var primesClient = false
+    var primeTimeout: Duration = .seconds(600)
+    var primeGrace: Duration = .seconds(20)
 
     public init(wine: any WineRunning, downloader: Downloading, downloads: URL) {
         self.wine = wine
@@ -69,6 +73,27 @@ public struct SteamInstaller: Sendable {
             try await Task.sleep(for: pollInterval)
         }
         log("Steam is installed.")
+        if primesClient { try await primeClient(log: log) }
         progress(1.0)
+    }
+
+    private var clientReady: Bool {
+        let fm = FileManager.default
+        let dir = wine.steamLayout.steamDirectory
+        return fm.fileExists(atPath: dir.appendingPathComponent("steamui.dll").path)
+            && fm.fileExists(atPath: dir.appendingPathComponent("bin/cef").path)
+    }
+
+    private func primeClient(log: @escaping @Sendable (String) -> Void) async throws {
+        guard !clientReady else { return }
+        log("Первый запуск Steam: загрузка клиента…")
+        let process = try wine.start([wine.steamLayout.steamExe.path], extraEnvironment: [:], onOutput: log)
+        _ = process
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: primeTimeout)
+        while !clientReady && clock.now < deadline { try await Task.sleep(for: pollInterval) }
+        try await Task.sleep(for: primeGrace)   // the update is still unpacking when the files first appear
+        await wine.killAll()
+        log("Клиент Steam загружен.")
     }
 }

@@ -30,7 +30,11 @@ struct LiveBackend: LauncherBackend {
                             : WineRunner(locator: locator, bottle: bottle, runner: runner)
     }
     private var layout: any SteamLayout { engineKind == .free ? freeEngine : bottle }
-    private var steam: SteamInstaller { SteamInstaller(wine: wine, downloader: downloader, downloads: paths.downloads) }
+    private var steam: SteamInstaller {
+        var installer = SteamInstaller(wine: wine, downloader: downloader, downloads: paths.downloads)
+        installer.primesClient = engineKind == .free
+        return installer
+    }
     private var game: GameLauncher { GameLauncher(wine: wine) }
     private var migration: LegacyMigration { LegacyMigration(paths: paths, bottle: bottle) }
 
