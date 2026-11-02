@@ -60,7 +60,11 @@ public struct FreeWineRunner: Sendable, WineRunning {
     }
 
     public var steamLayout: any SteamLayout { engine }
-    public var steamFlags: [String] { Self.steamFlagList }
+    /// A fresh Steam holds only its bootstrapper: it must be allowed to download the client (steamui.dll) once.
+    public var steamFlags: [String] {
+        FileManager.default.fileExists(atPath: engine.steamDirectory.appendingPathComponent("steamui.dll").path)
+            ? Self.steamFlagList : []
+    }
 
     private func env(_ extra: [String: String]) -> [String: String] {
         engine.environment().merging(extra) { _, new in new }

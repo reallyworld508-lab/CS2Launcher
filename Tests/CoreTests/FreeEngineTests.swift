@@ -80,10 +80,18 @@ final class FreeEngineTests: XCTestCase {
         do { _ = try await w.run(["x"]); XCTFail() } catch { XCTAssertEqual(error as? EngineError, .engineMissing) }
     }
 
+    func testFreshSteamStartsWithoutSkipFlags() throws {
+        let fx = EngineFixture()
+        try fx.installWine()
+        try fx.touch(fx.engine.steamExe)
+        XCTAssertEqual(FreeWineRunner(engine: fx.engine, runner: MockProcessRunner()).steamFlags, [])
+    }
+
     func testLaunchUsesSteamFlagsAndGameArguments() throws {
         let fx = EngineFixture()
         try fx.installWine()
         try fx.touch(fx.engine.steamExe)
+        try fx.touch(fx.engine.steamDirectory.appendingPathComponent("steamui.dll"))
         let mock = MockProcessRunner()
         var s = Settings(); s.metalHUD = true
         _ = try GameLauncher(wine: FreeWineRunner(engine: fx.engine, runner: mock))
